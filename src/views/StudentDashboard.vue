@@ -9,7 +9,7 @@ const backendUrl = 'https://backend-deployys-bere9s.vercel.app'
 
 // ================= STATE SISWA =================
 const student = ref({ name:'', nis:'', class:'', status:'' })
-const students = ref([]) 
+const studentsHadir = ref([]) // Hanya menyimpan yang sudah absen
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
 let html5QrCode = null
@@ -25,41 +25,22 @@ const showToast = (msg,type='success')=>{
 }
 
 // ================= COMPUTED =================
-const totalHadirCount = computed(() => students.value.filter(s => s.status === 'Hadir').length)
 const hariIni = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
 
 // ================= DATA JADWAL =================
 const jadwalAll = {
-  "Senin":[
-    { jam:"07:10", mapel:"Konsentrasi RPL", guru:"Yaqub Hadi Permana, S.T." },
-    { jam:"09:25", mapel:"Pancasila", guru:"Ati Melani" },
-    { jam:"13:50", mapel:"Matematika", guru:"Hinda Gumiarti, M.Pd" }
-  ],
-  "Selasa":[
-    { jam:"07:10", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." },
-    { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Fajar M. Sukmawijaya, M.Kom" }
-  ],
-  "Rabu":[
-    { jam:"07:10", mapel:"Bahasa Jepang", guru:"Pradita Surya Arianti" },
-    { jam:"08:30", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." }
-  ],
-  "Kamis":[
-    { jam:"07:10", mapel:"PAB", guru:"Dikdik Juanda, S.Pd.I." },
-    { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Yayat Ruhiyat, S.ST" }
-  ],
-  "Jumat":[
-    { jam:"07:10", mapel:"B. Indonesia", guru:"Rubaetul Adawiyah, S.Pd" },
-    { jam:"10:05", mapel:"Konsentrasi XII RPL-2", guru:"Sarah Siti Sumaerah, S.T." }
-  ]
+  "Senin":[{ jam:"07:10", mapel:"Konsentrasi RPL", guru:"Yaqub Hadi Permana, S.T." }, { jam:"09:25", mapel:"Pancasila", guru:"Ati Melani" }, { jam:"13:50", mapel:"Matematika", guru:"Hinda Gumiarti, M.Pd" }],
+  "Selasa":[{ jam:"07:10", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." }, { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Fajar M. Sukmawijaya, M.Kom" }],
+  "Rabu":[{ jam:"07:10", mapel:"Bahasa Jepang", guru:"Pradita Surya Arianti" }, { jam:"08:30", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." }],
+  "Kamis":[{ jam:"07:10", mapel:"PAB", guru:"Dikdik Juanda, S.Pd.I." }, { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Yayat Ruhiyat, S.ST" }],
+  "Jumat":[{ jam:"07:10", mapel:"B. Indonesia", guru:"Rubaetul Adawiyah, S.Pd" }, { jam:"10:05", mapel:"Konsentrasi XII RPL-2", guru:"Sarah Siti Sumaerah, S.T." }]
 }
 
-const loadJadwalHariIni = ()=>{
-  jadwalHariIni.value = jadwalAll[hariIni.value] || []
-}
+const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] || [] }
 
 // ================= QR SCANNER =================
 const startScan = async()=>{
-  if(student.value.status==='Hadir'){
+  if(student.value.status === 'Hadir'){
     showToast('Kamu sudah absen hari ini','success')
     return
   }
@@ -73,11 +54,11 @@ const startScan = async()=>{
         { fps:15, qrbox: 250 },
         async(decodedText)=>{
           if(scanning) return
-          scanning = true
           if(!decodedText.startsWith(guruTokenPrefix)){
             showToast('QR Code Tidak Valid','error')
-            scanning = false; return
+            return
           }
+          scanning = true
           await submitAttendance(decodedText)
         }
       )
@@ -89,30 +70,44 @@ const startScan = async()=>{
 }
 
 const stopScan = async()=>{
-  if(html5QrCode) { await html5QrCode.stop(); await html5QrCode.clear() }
+  if(html5QrCode) { 
+    try { await html5QrCode.stop(); await html5QrCode.clear() } catch(e) {}
+  }
   qrVisible.value = false
 }
 
+// ================= LOGIC UPDATE DATABASE =================
 const submitAttendance = async(decodedText)=>{
   try{
-    const payload = { nis: student.value.nis, name: student.value.name, status: 'Hadir', time: new Date() }
-    await axios.post(`${backendUrl}/attendance/scan`, payload)
-    student.value.status='Hadir'
-    showToast('Berhasil Absen!')
+    // Payload untuk update status & history sesuai skema MongoDB Anda
+    const payload = { 
+      status: 'Hadir',
+      qrToken: decodedText,
+      timestamp: new Date().toISOString()
+    }
+    
+    // Kirim PATCH ke backend berdasarkan NIS
+    await axios.patch(`${backendUrl}/students/attendance/${student.value.nis}`, payload)
+    
+    student.value.status = 'Hadir'
+    showToast('Berhasil Absen! Data disinkronkan.')
     stopScan()
-    loadAttendance()
+    loadAttendance() 
   } catch(err){
-    showToast('Gagal Absen','error')
+    showToast(err.response?.data?.message || 'Gagal mengirim absensi','error')
     scanning = false
   }
 }
 
 const loadAttendance = async ()=>{
   try{
-    const res = await axios.get(`${backendUrl}/attendance/history`)
-    students.value = res.data
-    const myStatus = res.data.find(s => s.nis === student.value.nis)
-    if(myStatus) student.value.status = myStatus.status
+    const res = await axios.get(`${backendUrl}/students`)
+    // FILTER: Hanya ambil yang statusnya 'Hadir'
+    studentsHadir.value = res.data.filter(s => s.status === 'Hadir')
+    
+    // Update status diri sendiri
+    const me = res.data.find(s => s.nis === student.value.nis)
+    if(me) student.value.status = me.status
   } catch(err){ console.log('Syncing...') }
 }
 
@@ -133,7 +128,10 @@ onMounted(()=>{
   }
   loadJadwalHariIni()
   loadAttendance()
-  setInterval(loadAttendance, 5000)
+  
+  // Refresh setiap 5 detik agar list kehadiran tetap update
+  const interval = setInterval(loadAttendance, 5000)
+  onUnmounted(() => clearInterval(interval))
 })
 
 onUnmounted(()=> stopScan())
@@ -142,9 +140,7 @@ onUnmounted(()=> stopScan())
 <template>
   <div class="mobile-app">
     <Transition name="slide-fade">
-      <div v-if="toast.show" class="toast" :class="toast.type">
-        {{ toast.msg }}
-      </div>
+      <div v-if="toast.show" class="toast" :class="toast.type">{{ toast.msg }}</div>
     </Transition>
 
     <header class="app-header">
@@ -186,21 +182,24 @@ onUnmounted(()=> stopScan())
 
       <section class="attendance-list">
         <div class="list-title">
-          <h3>Kehadiran Kelas</h3>
-          <span class="badge">{{ totalHadirCount }} Hadir</span>
+          <h3>Siswa Sudah Absen</h3>
+          <span class="badge">{{ studentsHadir.length }} Hadir</span>
         </div>
         <div class="scroll-area">
-          <div v-for="s in students" :key="s.nis" class="student-card">
+          <div v-for="s in studentsHadir" :key="s.nis" class="student-card">
             <div class="s-left">
-              <div class="s-avatar">{{ s.name[0] }}</div>
+              <div class="s-avatar hadir-bg">{{ s.name[0] }}</div>
               <div class="s-info">
                 <strong>{{ s.name }}</strong>
-                <small>{{ s.nis }}</small>
+                <small>{{ s.nis }} • {{ s.class }}</small>
               </div>
             </div>
             <div class="s-right">
-              <span :class="['status-tag', s.status || 'Alfa']">{{ s.status || 'Alfa' }}</span>
+              <span class="status-tag Hadir">Hadir</span>
             </div>
+          </div>
+          <div v-if="studentsHadir.length === 0" class="empty-list">
+            <p>Belum ada siswa yang absen hari ini.</p>
           </div>
         </div>
       </section>
@@ -222,7 +221,6 @@ onUnmounted(()=> stopScan())
                 <span>{{ j.guru }}</span>
               </div>
             </div>
-            <p v-if="!jadwalHariIni.length" class="empty">Tidak ada jadwal hari ini</p>
           </div>
         </div>
       </div>
@@ -286,114 +284,61 @@ onUnmounted(()=> stopScan())
   justify-content: space-between;
   align-items: center;
   background: linear-gradient(135deg, #3182ce 0%, #2c5282 100%);
-  box-shadow: 0 10px 20px rgba(44, 82, 130, 0.2);
+  transition: all 0.4s ease;
 }
 .status-box.hadir { background: linear-gradient(135deg, #48bb78 0%, #2f855a 100%); }
 .status-info h2 { margin: 5px 0; font-size: 1.8rem; }
 .status-info span { font-size: 0.8rem; opacity: 0.9; }
-.status-info p { margin: 0; font-size: 0.75rem; opacity: 0.8; }
-.status-icon { opacity: 0.3; }
 
-/* Action Grid */
-.action-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
-  margin: 25px 0;
-}
+/* Actions */
+.action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 25px 0; }
 .action-btn {
-  background: white;
-  border: none;
-  padding: 20px;
-  border-radius: 20px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  font-weight: 600;
-  color: #2c5282;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+  background: white; border: none; padding: 20px; border-radius: 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  font-weight: 600; color: #2c5282; box-shadow: 0 4px 6px rgba(0,0,0,0.02);
 }
 .btn-icon { font-size: 1.5rem; }
 
-/* Attendance List */
+/* List Kehadiran */
 .attendance-list {
-  background: white;
-  border-radius: 24px;
-  padding: 20px;
-  max-height: 400px;
-  display: flex;
-  flex-direction: column;
+  background: white; border-radius: 24px; padding: 20px;
+  max-height: 400px; display: flex; flex-direction: column;
 }
-.list-title {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 15px;
-}
-.badge {
-  background: #ebf8ff; color: #2b6cb0;
-  padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold;
-}
+.list-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+.badge { background: #e6fffa; color: #2c7a7b; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
 .scroll-area { overflow-y: auto; flex: 1; }
-.student-card {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 0; border-bottom: 1px solid #edf2f7;
-}
+.student-card { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #edf2f7; }
 .s-left { display: flex; gap: 10px; align-items: center; }
-.s-avatar {
-  width: 35px; height: 35px; background: #edf2f7;
-  border-radius: 50%; display: flex; align-items: center; justify-content: center;
-  font-size: 0.8rem; font-weight: bold; color: #4a5568;
-}
+.s-avatar.hadir-bg { background: #c6f6d5; color: #2f855a; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
 .s-info strong { display: block; font-size: 0.85rem; }
 .s-info small { font-size: 0.7rem; color: #a0aec0; }
-.status-tag {
-  font-size: 0.7rem; font-weight: bold; padding: 4px 10px; border-radius: 8px;
-}
-.status-tag.Hadir { background: #c6f6d5; color: #2f855a; }
-.status-tag.Alfa { background: #fed7d7; color: #c53030; }
+.status-tag.Hadir { background: #c6f6d5; color: #2f855a; font-size: 0.7rem; font-weight: bold; padding: 4px 10px; border-radius: 8px; }
+.empty-list { text-align: center; padding: 20px; color: #a0aec0; font-size: 0.85rem; }
 
-/* Modals */
-.modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  z-index: 100; display: flex; align-items: flex-end;
-}
-.modal-sheet {
-  background: white; width: 100%; border-radius: 30px 30px 0 0;
-  padding: 25px; animation: slideUp 0.3s ease-out;
-}
-.sheet-handle { width: 40px; height: 4px; background: #e2e8f0; margin: 0 auto 20px; border-radius: 10px; }
-.sheet-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
-.sheet-header button { border: none; background: #f7fafc; width: 30px; height: 30px; border-radius: 50%; }
-
-.schedule-item {
-  display: flex; gap: 15px; padding: 15px 0; border-bottom: 1px solid #f7fafc;
-}
-.time { font-weight: bold; color: #3182ce; font-size: 0.85rem; width: 50px; }
-.desc strong { display: block; font-size: 0.9rem; }
-.desc span { font-size: 0.75rem; color: #718096; }
-
-/* Scanner */
-.scanner-modal {
-  position: fixed; inset: 0; background: #000; z-index: 200;
-  display: flex; flex-direction: column;
-}
+/* Scanner & Modals */
+.scanner-modal { position: fixed; inset: 0; background: #000; z-index: 200; display: flex; flex-direction: column; }
 .scanner-header { padding: 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
 .scanner-header button { background: none; border: 1px solid white; color: white; padding: 5px 15px; border-radius: 8px; }
 #qr-reader { flex: 1; }
-.scanner-footer { padding: 30px; color: white; text-align: center; font-size: 0.9rem; opacity: 0.8; }
+.scanner-footer { padding: 30px; color: white; text-align: center; font-size: 0.9rem; }
+
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; display: flex; align-items: flex-end; }
+.modal-sheet { background: white; width: 100%; border-radius: 30px 30px 0 0; padding: 25px; animation: slideUp 0.3s ease-out; }
+.sheet-handle { width: 40px; height: 4px; background: #e2e8f0; margin: 0 auto 20px; border-radius: 10px; }
+.sheet-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+.schedule-item { display: flex; gap: 15px; padding: 15px 0; border-bottom: 1px solid #f7fafc; }
+.time { font-weight: bold; color: #3182ce; font-size: 0.85rem; width: 50px; }
 
 /* Transitions */
 .slide-fade-enter-active { transition: all 0.3s ease-out; }
 .slide-fade-enter-from { transform: translateY(-20px); opacity: 0; }
 .pop-enter-active { transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .pop-enter-from { transform: scale(0.9); opacity: 0; }
-
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 .toast {
   position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
   z-index: 1000; padding: 12px 24px; border-radius: 12px; color: white; font-weight: bold;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
 .toast.success { background: #48bb78; }
 .toast.error { background: #f56565; }
