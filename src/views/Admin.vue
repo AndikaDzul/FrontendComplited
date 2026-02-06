@@ -1,6 +1,7 @@
 <template>
   <div class="layout">
 
+    <!-- SIDEBAR -->
     <aside :class="['sidebar', sidebarOpen ? 'show' : '']">
       <div class="brand"><i class="bi bi-journal-text"></i> Absensi Admin</div>
       <ul class="menu">
@@ -27,6 +28,7 @@
 
     <div v-if="sidebarOpen" class="overlay" @click="sidebarOpen=false"></div>
 
+    <!-- MAIN CONTENT -->
     <div class="main">
       <header class="navbar">
         <button class="menu-btn" @click="sidebarOpen=!sidebarOpen">
@@ -40,6 +42,7 @@
 
       <main class="content">
 
+        <!-- DASHBOARD -->
         <div v-if="activeMenu==='dashboard'" class="dashboard">
           <h1>Dashboard Jurusan</h1>
           <div class="stats">
@@ -53,6 +56,7 @@
           </div>
         </div>
 
+        <!-- DATA SISWA -->
         <div v-if="activeMenu==='siswa'" class="box">
           <h3>Data Siswa</h3>
           <table class="table">
@@ -79,7 +83,6 @@
               </tr>
             </tbody>
           </table>
-
           <h3>Tambah Siswa</h3>
           <div class="form">
             <input v-model="formSiswa.nis" placeholder="NIS">
@@ -94,6 +97,7 @@
           </div>
         </div>
 
+        <!-- DATA GURU & JADWAL -->
         <div v-if="activeMenu==='guru'" class="box">
           <h3>Data Guru</h3>
           <table class="table">
@@ -118,7 +122,6 @@
               </tr>
             </tbody>
           </table>
-
           <h3>Tambah Guru</h3>
           <div class="form">
             <input v-model="formGuru.name" placeholder="Nama Guru">
@@ -127,49 +130,9 @@
             <input type="password" v-model="formGuru.password" placeholder="Password">
             <button class="btn btn-primary" @click="tambahGuru">Simpan</button>
           </div>
-
-          <hr class="divider" />
-
-          <h3>Tambah Jadwal Pelajaran</h3>
-          <div class="form jadwal-form">
-            <select v-model="formJadwal.hari">
-              <option value="">-- Pilih Hari --</option>
-              <option v-for="h in hariList" :key="h" :value="h">{{ h }}</option>
-            </select>
-            <input v-model="formJadwal.jam" placeholder="Waktu (07:00 - 09:00)">
-            <select v-model="formJadwal.kelas">
-              <option value="">-- Pilih Kelas --</option>
-              <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
-            </select>
-            <input v-model="formJadwal.mapel" placeholder="Mata Pelajaran">
-            <input v-model="formJadwal.guru" placeholder="Nama Guru">
-            <button class="btn btn-primary" @click="tambahJadwal">Tambah Jadwal</button>
-          </div>
-
-          <h4 class="mt-3">Daftar Jadwal Pelajaran</h4>
-          <div v-for="hari in hariList" :key="hari" class="jadwal-hari-section">
-            <h5 class="jadwal-hari">{{ hari }}</h5>
-            <table class="table mt-1">
-              <thead>
-                <tr>
-                  <th>Waktu</th>
-                  <th>Kelas</th>
-                  <th>Mapel</th>
-                  <th>Guru</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="j in jadwalHari(hari)" :key="j._id">
-                  <td>{{ j.jam }}</td>
-                  <td>{{ j.kelas }}</td>
-                  <td>{{ j.mapel }}</td>
-                  <td>{{ j.guru || '-' }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
 
+        <!-- ABSENSI -->
         <div v-if="activeMenu==='absensi'" class="box">
           <h3>Absensi Siswa (Otomatis)</h3>
           <table class="table">
@@ -193,9 +156,10 @@
           <button class="btn btn-danger" @click="resetAbsensi">Reset Semua Kehadiran</button>
         </div>
 
+        <!-- LAPORAN -->
         <div v-if="activeMenu==='laporan'" class="box">
           <div class="report-header">
-            <h3>Laporan Kehadiran</h3>
+            <h3>Laporan Kehadiran Per Hari</h3>
             <div class="export-tools">
               <select v-model="selectedExportDay" class="select-export">
                 <option value="">-- Pilih Hari Export --</option>
@@ -209,6 +173,7 @@
 
           <div v-for="hari in hariList" :key="hari" class="laporan-hari-section">
             <h4 class="jadwal-hari">{{ hari }}</h4>
+            <p><strong>Total Siswa Hadir:</strong> {{ totalHadir(hari) }}</p>
             <table class="table">
               <thead>
                 <tr>
@@ -216,8 +181,6 @@
                   <th>Nama</th>
                   <th>Jurusan</th>
                   <th>Status</th>
-                  <th>Mapel</th>
-                  <th>Guru</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,12 +189,9 @@
                   <td>{{ s.name }}</td>
                   <td>{{ s.class }}</td>
                   <td v-html="statusIcon(s.status)"></td>
-                  <td>{{ s.mapel }}</td>
-                  <td>{{ s.guru }}</td>
                 </tr>
               </tbody>
             </table>
-            <div style="height:20px"></div>
           </div>
         </div>
 
@@ -244,7 +204,7 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { useRouter } from 'vue-router'
-import * as XLSX from 'xlsx' // Pastikan sudah install: npm install xlsx
+import * as XLSX from 'xlsx'
 
 const router = useRouter()
 const API = 'https://backend-deployys-bere9s.vercel.app'
@@ -258,122 +218,55 @@ const hariList = ['Senin','Selasa','Rabu','Kamis','Jumat']
 
 const siswa = ref([])
 const guru = ref([])
-const jadwal = ref([])
 const attendance = ref([])
 
-const formSiswa = ref({
-  nis: '',
-  name: '',
-  class: '',
-  email: '',
-  password: ''
-})
-
-const formGuru = ref({
-  name: '',
-  email: '',
-  mapel: '',
-  password: ''
-})
-
-const formJadwal = ref({
-  hari: '',
-  jam: '',
-  kelas: '',
-  mapel: '',
-  guru: ''
-})
+const formSiswa = ref({ nis:'', name:'', class:'', email:'', password:'' })
+const formGuru = ref({ name:'', email:'', mapel:'', password:'' })
 
 const admin = ref({ name: localStorage.getItem('adminName') || 'Admin' })
 const token = localStorage.getItem('token')
 
-const axiosAuth = axios.create({
-  baseURL: API,
-  headers: { Authorization: `Bearer ${token}` }
-})
+const axiosAuth = axios.create({ baseURL: API, headers: { Authorization: `Bearer ${token}` }})
 
-/* ================= LOAD DATA ================= */
-const loadSiswa = async () => {
+/* LOAD DATA */
+const loadSiswa = async()=>{ 
   siswa.value = (await axiosAuth.get('/students')).data
 }
-
-const loadGuru = async () => {
+const loadGuru = async()=>{ 
   guru.value = (await axiosAuth.get('/teachers')).data
 }
-
-const loadJadwal = async () => {
-  jadwal.value = (await axiosAuth.get('/schedules')).data
-}
-
-const loadAttendance = async () => {
+const loadAttendance = async()=>{ 
   attendance.value = (await axiosAuth.get('/attendance')).data
 }
 
-/* ================= CRUD SISWA ================= */
-const tambahSiswa = async () => {
-  if (!formSiswa.value.nis || !formSiswa.value.name) return alert('Data belum lengkap')
-
+/* CRUD SISWA */
+const tambahSiswa = async()=>{
+  if(!formSiswa.value.nis || !formSiswa.value.name) return alert('Data belum lengkap')
   await axiosAuth.post('/students', formSiswa.value)
-  formSiswa.value = { nis:'', name:'', class:'', email:'', password:'' }
+  formSiswa.value={ nis:'', name:'', class:'', email:'', password:'' }
   loadSiswa()
 }
-
-const hapusSiswa = async (nis) => {
-  if (!confirm('Hapus siswa ini?')) return
+const hapusSiswa = async(nis)=>{
+  if(!confirm('Hapus siswa ini?')) return
   await axiosAuth.delete(`/students/${nis}`)
   loadSiswa()
 }
 
-/* ================= CRUD GURU ================= */
-const tambahGuru = async () => {
-  if (!formGuru.value.name) return alert('Lengkapi data guru')
-
+/* CRUD GURU */
+const tambahGuru = async()=>{
+  if(!formGuru.value.name) return alert('Lengkapi data guru')
   await axiosAuth.post('/teachers', formGuru.value)
-  formGuru.value = { name:'', email:'', mapel:'', password:'' }
+  formGuru.value={ name:'', email:'', mapel:'', password:'' }
   loadGuru()
 }
-
-const hapusGuru = async (email) => {
-  if (!confirm('Hapus guru ini?')) return
+const hapusGuru = async(email)=>{
+  if(!confirm('Hapus guru ini?')) return
   await axiosAuth.delete(`/teachers/${email}`)
   loadGuru()
 }
 
-/* ================= CRUD JADWAL ================= */
-const tambahJadwal = async () => {
-  if (!formJadwal.value.hari) return alert('Lengkapi jadwal')
-
-  await axiosAuth.post('/schedules', formJadwal.value)
-  formJadwal.value = { hari:'', jam:'', kelas:'', mapel:'', guru:'' }
-  loadJadwal()
-}
-
-/* ================= EXPORT EXCEL ================= */
-const exportToExcel = () => {
-  if (!selectedExportDay.value) return alert('Silahkan pilih hari terlebih dahulu!')
-  
-  const dataToExport = siswaHari(selectedExportDay.value).map(item => ({
-    'Hari': selectedExportDay.value,
-    'NIS': item.nis,
-    'Nama Siswa': item.name,
-    'Jurusan': item.class,
-    'Status Kehadiran': item.status || 'Belum Absen',
-    'Mata Pelajaran': item.mapel,
-    'Guru Pengampu': item.guru
-  }))
-
-  if (dataToExport.length === 0) return alert('Tidak ada data untuk hari tersebut')
-
-  const worksheet = XLSX.utils.json_to_sheet(dataToExport)
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Absensi")
-  
-  // Penamaan file: Laporan_Absensi_Senin.xlsx
-  XLSX.writeFile(workbook, `Laporan_Absensi_${selectedExportDay.value}.xlsx`)
-}
-
-/* ================= HELPER ================= */
-const statusIcon = (status)=>{
+/* HELPER STATUS */
+const statusIcon = status=>{
   switch(status?.toLowerCase()){
     case 'hadir': return '<span class="text-success">✔ Hadir</span>'
     case 'izin': return '<span class="text-warning">✎ Izin</span>'
@@ -383,46 +276,46 @@ const statusIcon = (status)=>{
   }
 }
 
-const jadwalHari = (hari)=>{
-  return jadwal.value.filter(j=>j.hari===hari)
-}
-
-const siswaHari = (hari)=>{
-  const result = []
-  jadwalHari(hari).forEach(j=>{
-    siswa.value.filter(s=>s.class===j.kelas).forEach(s=>{
-      const absen = attendance.value.find(a=>a.nis===s.nis && a.day===hari)
-      result.push({
-        ...s,
-        status: absen?.status || '-',
-        mapel: j.mapel,
-        guru: j.guru
-      })
-    })
+/* LAPORAN */
+const siswaHari = hari=>{
+  return siswa.value.map(s=>{
+    const absen = attendance.value.find(a=>a.nis===s.nis && a.day===hari)
+    return {...s, status: absen?.status || '-'}
   })
-  return result
+}
+const totalHadir = hari=>{
+  return siswaHari(hari).filter(s=>s.status==='Hadir').length
 }
 
-/* ================= RESET ================= */
-const resetAbsensi = async ()=>{
-  await axiosAuth.post('/attendance/reset')
-  loadAttendance()
+/* EXPORT */
+const exportToExcel = ()=>{
+  if(!selectedExportDay.value) return alert('Pilih hari dulu!')
+  const dataToExport = siswaHari(selectedExportDay.value).map(s=>({
+    NIS: s.nis,
+    Nama: s.name,
+    Jurusan: s.class,
+    Status: s.status
+  }))
+  const ws = XLSX.utils.json_to_sheet(dataToExport)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Laporan Absensi')
+  XLSX.writeFile(wb, `Laporan_Absensi_${selectedExportDay.value}.xlsx`)
 }
 
-/* ================= LOGOUT ================= */
-const logout = ()=>{
-  localStorage.clear()
-  router.push('/login')
-}
+/* RESET ABSENSI */
+const resetAbsensi = async()=>{ await axiosAuth.post('/attendance/reset'); loadAttendance() }
 
-/* ================= INIT ================= */
+/* LOGOUT */
+const logout=()=>{ localStorage.clear(); router.push('/login') }
+
+/* INIT */
 onMounted(()=>{
   loadSiswa()
   loadGuru()
-  loadJadwal()
   loadAttendance()
 })
 </script>
+
 
 <style scoped>
 @import "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css";

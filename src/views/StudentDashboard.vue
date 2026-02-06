@@ -5,22 +5,32 @@ import { Html5Qrcode } from 'html5-qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-deployys-bere9s.vercel.app'
+const backendUrl = 'https://backend-deployys-tr57.vercel.app'
 
-// ================= STATE SISWA =================
+// ================= STATE SISWA & TEMA =================
 const student = ref({ name:'', nis:'', class:'', status:'', lastAttendance: null })
-const studentsHadir = ref([]) 
+const myAttendanceHistory = ref([]) 
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
+const isDarkMode = ref(localStorage.getItem('theme') === 'dark')
 let html5QrCode = null
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 const jadwalHariIni = ref([])
 
-// ================= AUDIO & TOAST =================
-const playSuccessSound = () => {
-  const audio = new Audio('/sounds/succes.mp3') // Mengambil dari folder public/sounds/succes.mp3
-  audio.play().catch(e => console.log("Audio play blocked by browser interaction"))
+// ================= TEMA LOGIC =================
+const toggleTheme = () => {
+  isDarkMode.value = !isDarkMode.value
+  localStorage.setItem('theme', isDarkMode.value ? 'dark' : 'light')
+}
+
+// ================= AUDIO, VIBRATE & TOAST =================
+const playSuccessFeedback = () => {
+  const audio = new Audio('/sounds/succes.mp3')
+  audio.play().catch(e => console.log("Audio play blocked"))
+  if (navigator.vibrate) {
+    navigator.vibrate(200)
+  }
 }
 
 const toast = ref({ show:false, msg:'', type:'success' })
@@ -29,24 +39,37 @@ const showToast = (msg,type='success')=>{
   setTimeout(()=>toast.value.show=false,3000)
 }
 
-// ================= LOGIKA RESET 24 JAM (CLIENT SIDE) =================
-// Menentukan apakah tombol absen harus muncul kembali
+// ================= LOGIKA STATUS (TIDAK BERUBAH) =================
 const canAbsen = computed(() => {
   if (!student.value.lastAttendance) return true
-  
   const lastTime = new Date(student.value.lastAttendance).getTime()
   const now = new Date().getTime()
-  const twentyFourHours = 24 * 60 * 60 * 1000
-  
-  // Jika sudah lebih dari 24 jam, status lokal dianggap "Belum Absen"
-  return (now - lastTime) > twentyFourHours
+  const nineHalfHours = 9.5 * 60 * 60 * 1000
+  return (now - lastTime) > nineHalfHours
+})
+
+const isLate = computed(() => {
+  const now = new Date()
+  return now.getHours() >= 15 
 })
 
 const displayStatus = computed(() => {
-  return canAbsen.value ? 'Belum Absen' : 'Sudah Hadir'
+  if (!canAbsen.value) return 'Sudah Hadir'
+  if (canAbsen.value && isLate.value) return 'Alfa'
+  return 'Belum Absen'
 })
 
 const hariIni = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
+
+const formatDateTime = (ts) => {
+  if(!ts) return { hari: '', jam: '' }
+  const d = new Date(ts)
+  if(isNaN(d.getTime())) return { hari: 'Format Salah', jam: '' }
+  return {
+    hari: d.toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'short' }),
+    jam: d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  }
+}
 
 // ================= DATA JADWAL =================
 const jadwalAll = {
@@ -62,7 +85,7 @@ const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] 
 // ================= QR SCANNER =================
 const startScan = async()=>{
   if(!canAbsen.value){
-    showToast('Kamu sudah absen. Tunggu 24 jam untuk absen lagi.','error')
+    showToast('Kamu sudah absen.','error')
     return
   }
   qrVisible.value = true
@@ -97,26 +120,15 @@ const stopScan = async()=>{
   qrVisible.value = false
 }
 
-// ================= LOGIC UPDATE DATABASE =================
 const submitAttendance = async(decodedText)=>{
   try{
     const now = new Date()
-    const payload = { 
-      status: 'Hadir',
-      qrToken: decodedText,
-      timestamp: now.toISOString()
-    }
-    
+    const payload = { status: 'Hadir', qrToken: decodedText, timestamp: now.toISOString() }
     await axios.patch(`${backendUrl}/students/attendance/${student.value.nis}`, payload)
-    
-    // Update State Lokal
     student.value.status = 'Hadir'
     student.value.lastAttendance = now.toISOString()
-    
-    // Suara & Notifikasi
-    playSuccessSound()
-    showToast('Berhasil Absen! Data disinkronkan.')
-    
+    playSuccessFeedback()
+    showToast('Berhasil Absen!')
     stopScan()
     loadAttendance() 
   } catch(err){
@@ -128,28 +140,30 @@ const submitAttendance = async(decodedText)=>{
 const loadAttendance = async ()=>{
   try{
     const res = await axios.get(`${backendUrl}/students`)
-    studentsHadir.value = res.data.filter(s => s.status === 'Hadir')
-    
     const me = res.data.find(s => s.nis === student.value.nis)
     if(me) {
       student.value.status = me.status
-      // Ambil waktu terakhir dari history di database
       if(me.attendanceHistory && me.attendanceHistory.length > 0) {
+        myAttendanceHistory.value = [...me.attendanceHistory].reverse()
         student.value.lastAttendance = me.attendanceHistory[me.attendanceHistory.length - 1].timestamp || me.updatedAt
       }
     }
   } catch(err){ console.log('Syncing...') }
 }
 
-const logout = () => {
-  localStorage.clear()
-  router.replace('/login')
+// ================= FIXED LOGOUT =================
+const logout = async () => {
+  localStorage.clear() // Hapus semua session
+  await router.push('/login') // Pindah ke halaman login
+  window.location.reload() // Opsional: Memastikan state bersih total
 }
 
 onMounted(()=>{
   const nis = localStorage.getItem('studentNis')
-  if(!nis){ router.replace('/login'); return }
-  
+  if(!nis){ 
+    router.replace('/login')
+    return 
+  }
   student.value = { 
     name: localStorage.getItem('studentName'), 
     nis, 
@@ -159,7 +173,6 @@ onMounted(()=>{
   }
   loadJadwalHariIni()
   loadAttendance()
-  
   const interval = setInterval(loadAttendance, 5000)
   onUnmounted(() => clearInterval(interval))
 })
@@ -168,69 +181,99 @@ onUnmounted(()=> stopScan())
 </script>
 
 <template>
-  <div class="mobile-app">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+  <div class="mobile-app" :class="{ 'dark-mode': isDarkMode }">
     <Transition name="slide-fade">
-      <div v-if="toast.show" class="toast" :class="toast.type">{{ toast.msg }}</div>
+      <div v-if="toast.show" class="custom-toast" :class="toast.type">
+        <i :class="toast.type === 'success' ? 'fa-solid fa-circle-check' : 'fa-solid fa-circle-xmark'"></i>
+        {{ toast.msg }}
+      </div>
     </Transition>
 
-    <header class="app-header">
-      <div class="profile-area">
-        <div class="avatar">{{ student.name?.[0] }}</div>
-        <div class="meta">
-          <h3>{{ student.name }}</h3>
-          <p>{{ student.class }} • {{ student.nis }}</p>
+    <header class="app-header shadow-sm border-bottom px-4 py-3 d-flex justify-content-between align-items-center bg-card">
+      <div class="d-flex align-items-center gap-3">
+        <div class="avatar-circle">
+          {{ student.name?.[0] }}
+        </div>
+        <div>
+          <h1 class="h6 mb-0 fw-bold title-text">{{ student.name }}</h1>
+          <small class="text-secondary">{{ student.class }} • {{ student.nis }}</small>
         </div>
       </div>
-      <button @click="logout" class="logout-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-      </button>
+      <div class="d-flex gap-2">
+        <button @click="toggleTheme" class="btn btn-theme rounded-circle border-0">
+          <i :class="isDarkMode ? 'fa-solid fa-sun text-warning' : 'fa-solid fa-moon text-primary'"></i>
+        </button>
+        <button @click="logout" class="btn btn-outline-danger btn-sm rounded-pill px-3">
+          <i class="fa-solid fa-power-off me-1"></i> Keluar
+        </button>
+      </div>
     </header>
 
-    <main class="content">
-      <section class="status-box" :class="!canAbsen ? 'hadir' : 'none'">
-        <div class="status-info">
-          <span>Status Sekarang</span>
-          <h2>{{ displayStatus }}</h2>
-          <p v-if="!canAbsen" class="reset-info">Dapat absen lagi setelah 24 jam</p>
-          <p v-else>{{ hariIni }}, {{ new Date().toLocaleDateString('id-ID') }}</p>
-        </div>
-        <div class="status-icon">
-          <svg v-if="!canAbsen" viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-          <svg v-else viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+    <main class="container-fluid p-4">
+      <section class="status-card mb-4" :class="displayStatus === 'Sudah Hadir' ? 'is-hadir' : (displayStatus === 'Alfa' ? 'is-alfa' : 'is-none')">
+        <div class="card-body p-4 d-flex justify-content-between align-items-center text-white">
+          <div>
+            <span class="text-uppercase fw-semibold opacity-75 small ls-1">Status Kehadiran</span>
+            <h2 class="display-6 fw-bold my-1">{{ displayStatus }}</h2>
+            <p class="mb-0 small opacity-75">
+              <i class="fa-solid fa-calendar-day me-1"></i> {{ hariIni }}, {{ new Date().toLocaleDateString('id-ID') }}
+            </p>
+          </div>
+          <div class="icon-glow">
+            <i v-if="displayStatus === 'Sudah Hadir'" class="fa-solid fa-check-double fa-4x"></i>
+            <i v-else-if="displayStatus === 'Alfa'" class="fa-solid fa-circle-xmark fa-4x"></i>
+            <i v-else class="fa-solid fa-hourglass-start fa-4x opacity-50"></i>
+          </div>
         </div>
       </section>
 
-      <div class="action-grid">
-        <button class="action-btn scan" @click="startScan" :disabled="!canAbsen" :class="{'disabled': !canAbsen}">
-          <div class="btn-icon">📸</div>
-          <span>Scan QR</span>
-        </button>
-        <button class="action-btn schedule" @click="scheduleVisible = true">
-          <div class="btn-icon">📅</div>
-          <span>Jadwal</span>
-        </button>
+      <div class="row g-3 mb-4">
+        <div class="col-6">
+          <button @click="startScan" class="btn w-100 action-card py-4" :disabled="!canAbsen" :class="{'disabled-btn': !canAbsen}">
+            <div class="icon-box scan mb-2">
+              <i class="fa-solid fa-camera-retro"></i>
+            </div>
+            <span class="fw-bold">Scan QR</span>
+          </button>
+        </div>
+        <div class="col-6">
+          <button @click="scheduleVisible = true" class="btn w-100 action-card py-4">
+            <div class="icon-box schedule mb-2">
+              <i class="fa-solid fa-clipboard-list"></i>
+            </div>
+            <span class="fw-bold">Jadwal</span>
+          </button>
+        </div>
       </div>
 
-      <section class="attendance-list">
-        <div class="list-title">
-          <h3>Siswa Sudah Absen</h3>
-          <span class="badge">{{ studentsHadir.length }} Hadir</span>
+      <section class="history-section">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h3 class="h6 fw-bold mb-0 title-text"><i class="fa-solid fa-history me-2 text-primary"></i>Riwayat Saya</h3>
+          <span class="badge rounded-pill bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-3">{{ myAttendanceHistory.length }} Record</span>
         </div>
-        <div class="scroll-area">
-          <div v-for="s in studentsHadir" :key="s.nis" class="student-card">
-            <div class="s-left">
-              <div class="s-avatar hadir-bg">{{ s.name[0] }}</div>
-              <div class="s-info">
-                <strong>{{ s.name }}</strong>
-                <small>{{ s.nis }} • {{ s.class }}</small>
+        
+        <div class="list-container">
+          <div v-for="(log, idx) in myAttendanceHistory" :key="idx" class="history-item d-flex align-items-center justify-content-between p-3 mb-2 rounded-4 border bg-card">
+            <div class="d-flex align-items-center gap-3">
+              <div class="check-box-ui">
+                <i class="fa-solid fa-check text-white"></i>
+              </div>
+              <div>
+                <span class="d-block fw-bold small title-text">{{ formatDateTime(log.timestamp).hari }}</span>
+                <small class="text-secondary">Telah diabsen</small>
               </div>
             </div>
-            <div class="s-right">
-              <span class="status-tag Hadir">Hadir</span>
+            <div class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3">
+              {{ formatDateTime(log.timestamp).jam }}
             </div>
           </div>
-          <div v-if="studentsHadir.length === 0" class="empty-list">
-            <p>Belum ada siswa yang absen hari ini.</p>
+
+          <div v-if="myAttendanceHistory.length === 0" class="text-center py-5 opacity-50 text-secondary">
+            <i class="fa-solid fa-inbox fa-3x mb-3"></i>
+            <p>Belum ada data</p>
           </div>
         </div>
       </section>
@@ -238,18 +281,18 @@ onUnmounted(()=> stopScan())
 
     <Transition name="pop">
       <div v-if="scheduleVisible" class="modal-overlay" @click.self="scheduleVisible = false">
-        <div class="modal-sheet">
-          <div class="sheet-handle"></div>
-          <div class="sheet-header">
-            <h3>Jadwal {{ hariIni }}</h3>
-            <button @click="scheduleVisible = false">✕</button>
+        <div class="bottom-sheet w-100 p-4 bg-card rounded-top-5 shadow-lg">
+          <div class="sheet-drag-handle mx-auto mb-4"></div>
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <h5 class="fw-bold mb-0 title-text"><i class="fa-solid fa-calendar me-2 text-primary"></i>Jadwal Hari Ini</h5>
+            <button @click="scheduleVisible = false" class="btn-close"></button>
           </div>
-          <div class="sheet-content">
-            <div v-for="(j, i) in jadwalHariIni" :key="i" class="schedule-item">
-              <div class="time">{{ j.jam }}</div>
-              <div class="desc">
-                <strong>{{ j.mapel }}</strong>
-                <span>{{ j.guru }}</span>
+          <div class="schedule-list">
+            <div v-for="(j, i) in jadwalHariIni" :key="i" class="d-flex gap-3 mb-3 p-3 rounded-4 bg-light-custom">
+              <div class="fw-bold text-primary" style="min-width: 60px;">{{ j.jam }}</div>
+              <div class="border-start ps-3">
+                <div class="fw-bold title-text">{{ j.mapel }}</div>
+                <div class="small text-secondary">{{ j.guru }}</div>
               </div>
             </div>
           </div>
@@ -258,122 +301,130 @@ onUnmounted(()=> stopScan())
     </Transition>
 
     <Transition name="fade">
-      <div v-if="qrVisible" class="scanner-modal">
-        <div class="scanner-header">
-          <button @click="stopScan">Kembali</button>
-          <h3>Scanner Absensi</h3>
+      <div v-if="qrVisible" class="scanner-full">
+        <div class="scanner-header p-4 d-flex justify-content-between text-white">
+          <button @click="stopScan" class="btn btn-link text-white text-decoration-none">
+            <i class="fa-solid fa-chevron-left me-2"></i> Kembali
+          </button>
+          <span class="fw-bold">Scan QR Code Guru</span>
+          <div style="width: 50px"></div>
         </div>
-        <div id="qr-reader"></div>
-        <div class="scanner-footer">Arahkan kamera ke QR Guru</div>
+        <div class="scanner-view">
+          <div id="qr-reader"></div>
+          <div class="scanner-overlay-ui"></div>
+        </div>
+        <div class="scanner-footer text-center p-4 text-white">
+          <small class="opacity-75">Arahkan kamera tepat ke kode QR</small>
+        </div>
       </div>
     </Transition>
   </div>
 </template>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-
+/* CSS VARIABLES */
 .mobile-app {
+  --bg-main: #f8fafc;
+  --bg-card: #ffffff;
+  --text-bold: #0f172a;
+  --text-muted: #64748b;
+  --primary: #4f46e5;
+  --light-gray: #f1f5f9;
+  
   font-family: 'Inter', sans-serif;
-  background-color: #f0f4f8;
+  background-color: var(--bg-main);
   min-height: 100vh;
-  max-width: 500px;
+  max-width: 480px;
   margin: 0 auto;
-  color: #1a365d;
-  position: relative;
+  color: var(--text-bold);
+  transition: all 0.3s ease;
 }
 
-.reset-info { font-size: 0.7rem; color: #e6fffa; margin-top: 5px; font-style: italic; }
-
-.app-header {
-  padding: 25px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #ffffff;
+.dark-mode {
+  --bg-main: #020617;
+  --bg-card: #1e293b;
+  --text-bold: #f8fafc;
+  --text-muted: #94a3b8;
+  --light-gray: #334155;
 }
-.profile-area { display: flex; align-items: center; gap: 12px; }
-.avatar {
+
+.bg-card { background-color: var(--bg-card) !important; }
+.title-text { color: var(--text-bold) !important; }
+.bg-light-custom { background-color: var(--light-gray); }
+
+/* UI COMPONENTS */
+.avatar-circle {
   width: 45px; height: 45px;
-  background: #2b6cb0;
-  color: white;
-  border-radius: 12px;
+  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  color: white; border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
   font-weight: bold; font-size: 1.2rem;
 }
-.meta h3 { margin: 0; font-size: 1rem; color: #2d3748; }
-.meta p { margin: 0; font-size: 0.75rem; color: #718096; }
-.logout-icon { background: none; border: none; color: #e53e3e; cursor: pointer; }
 
-.content { padding: 0 20px 20px 20px; }
-.status-box {
-  margin-top: 10px;
-  padding: 25px;
-  border-radius: 24px;
-  color: white;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
-  transition: all 0.4s ease;
+.btn-theme {
+  background: var(--light-gray);
+  width: 40px; height: 40px;
 }
-.status-box.hadir { background: linear-gradient(135deg, #48bb78 0%, #2f855a 100%); }
-.status-info h2 { margin: 5px 0; font-size: 1.8rem; }
-.status-info span { font-size: 0.8rem; opacity: 0.9; }
 
-.action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 25px 0; }
-.action-btn {
-  background: white; border: none; padding: 20px; border-radius: 20px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  font-weight: 600; color: #2c5282; box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-  cursor: pointer;
-}
-.action-btn.disabled {
-  opacity: 0.6;
-  background: #edf2f7;
-  cursor: not-allowed;
-  color: #a0aec0;
-}
-.btn-icon { font-size: 1.5rem; }
-
-.attendance-list {
-  background: white; border-radius: 24px; padding: 20px;
-  max-height: 400px; display: flex; flex-direction: column;
-}
-.list-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-.badge { background: #e6fffa; color: #2c7a7b; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; }
-.scroll-area { overflow-y: auto; flex: 1; }
-.student-card { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #edf2f7; }
-.s-left { display: flex; gap: 10px; align-items: center; }
-.s-avatar.hadir-bg { background: #c6f6d5; color: #2f855a; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-.s-info strong { display: block; font-size: 0.85rem; }
-.s-info small { font-size: 0.7rem; color: #a0aec0; }
-.status-tag.Hadir { background: #c6f6d5; color: #2f855a; font-size: 0.7rem; font-weight: bold; padding: 4px 10px; border-radius: 8px; }
-.empty-list { text-align: center; padding: 20px; color: #a0aec0; font-size: 0.85rem; }
-
-.scanner-modal { position: fixed; inset: 0; background: #000; z-index: 200; display: flex; flex-direction: column; }
-.scanner-header { padding: 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
-.scanner-header button { background: none; border: 1px solid white; color: white; padding: 5px 15px; border-radius: 8px; }
-#qr-reader { flex: 1; }
-.scanner-footer { padding: 30px; color: white; text-align: center; font-size: 0.9rem; }
-
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; display: flex; align-items: flex-end; }
-.modal-sheet { background: white; width: 100%; border-radius: 30px 30px 0 0; padding: 25px; animation: slideUp 0.3s ease-out; }
-.sheet-handle { width: 40px; height: 4px; background: #e2e8f0; margin: 0 auto 20px; border-radius: 10px; }
-.sheet-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
-.schedule-item { display: flex; gap: 15px; padding: 15px 0; border-bottom: 1px solid #f7fafc; }
-.time { font-weight: bold; color: #3182ce; font-size: 0.85rem; width: 50px; }
-
-.slide-fade-enter-active { transition: all 0.3s ease-out; }
-.slide-fade-enter-from { transform: translateY(-20px); opacity: 0; }
-.pop-enter-active { transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-.pop-enter-from { transform: scale(0.9); opacity: 0; }
-@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-
-.toast {
+.custom-toast {
   position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-  z-index: 1000; padding: 12px 24px; border-radius: 12px; color: white; font-weight: bold;
+  z-index: 9999; padding: 12px 25px; border-radius: 50px;
+  color: white; display: flex; align-items: center; gap: 10px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.2);
 }
-.toast.success { background: #48bb78; }
-.toast.error { background: #f56565; }
+.custom-toast.success { background: #10b981; }
+.custom-toast.error { background: #ef4444; }
+
+/* STATUS CARD */
+.status-card {
+  border: none; border-radius: 30px;
+  box-shadow: 0 15px 35px -5px rgba(0,0,0,0.1);
+}
+.status-card.is-hadir { background: linear-gradient(135deg, #10b981, #059669); }
+.status-card.is-alfa { background: linear-gradient(135deg, #f43f5e, #e11d48); }
+.status-card.is-none { background: linear-gradient(135deg, #64748b, #475569); }
+
+.icon-glow { filter: drop-shadow(0 0 10px rgba(255,255,255,0.3)); }
+
+/* ACTION CARD */
+.action-card {
+  background: var(--bg-card); border: none; border-radius: 25px;
+  color: var(--text-bold); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+  transition: transform 0.2s;
+}
+.action-card:active { transform: scale(0.95); }
+.disabled-btn { opacity: 0.5; filter: grayscale(1); }
+
+.icon-box {
+  width: 55px; height: 55px; border-radius: 18px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: center; font-size: 1.5rem;
+}
+.scan { background: #e0e7ff; color: #4338ca; }
+.schedule { background: #fef3c7; color: #d97706; }
+
+/* HISTORY */
+.check-box-ui {
+  width: 35px; height: 35px; border-radius: 10px;
+  background: #10b981; display: flex; align-items: center; justify-content: center;
+}
+
+/* MODAL & SCANNER */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(5px); z-index: 2000; display: flex; align-items: flex-end;
+}
+.sheet-drag-handle { width: 50px; height: 6px; background: #cbd5e1; border-radius: 10px; }
+
+.scanner-full {
+  position: fixed; inset: 0; background: #000; z-index: 3000;
+}
+#qr-reader { width: 100% !important; border: none !important; }
+
+/* ANIMATIONS */
+.slide-fade-enter-active { transition: all 0.3s ease-out; }
+.slide-fade-enter-from { transform: translate(-50%, -20px); opacity: 0; }
+.pop-enter-active { transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+.pop-enter-from { transform: translateY(100%); }
+
+.ls-1 { letter-spacing: 1px; }
 </style>
