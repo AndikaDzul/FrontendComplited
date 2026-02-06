@@ -112,7 +112,7 @@ const statusClass = (status) => {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
+  background: linear-gradient(135deg, #5d5d66, #807f94);
   color: white;
   display: flex;
   align-items: center;

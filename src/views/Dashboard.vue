@@ -1,291 +1,524 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Html5Qrcode } from 'html5-qrcode'
 import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-test-n4bo.vercel.app'
+const backendUrl = 'https://backend-deployys-bere9s.vercel.app'
 
+// ================= STATE =================
 const user = ref({ name:'', role:'guru', mapel:'' })
 const students = ref([])
-const attendanceHistory = ref(JSON.parse(localStorage.getItem('attendance_history')||'[]'))
 const searchQuery = ref('')
-const qrScannerVisible = ref(false)
-let html5QrCode=null
-const scannedNis = ref(new Set())
+const showHistoryFor = ref(null)
+const activeTab = ref('hadir') // Tab default: 'hadir'
 
-const toastVisible=ref(false)
-const toastMessage=ref('')
-const toastType=ref('success')
-const successSound=new Audio('/sounds/success.mp3')
+// ===== QR GURU =====
+const guruToken = 'ABSENSI-GURU-2026'
+const guruQr = ref('')
+let qrInterval = null
+const showQrModal = ref(false)
 
-const showToast=(msg,type='success')=>{ toastMessage.value=msg; toastType.value=type; toastVisible.value=true; setTimeout(()=>toastVisible.value=false,3000) }
-
-const avatarInitial = computed(()=> user.value.name ? user.value.name.charAt(0).toUpperCase():'G')
-const filteredStudents = computed(()=> searchQuery.value ? students.value.filter(s=>s.name.toLowerCase().includes(searchQuery.value.toLowerCase())) : students.value)
-const hadirCount = computed(()=> students.value.filter(s=>s.status==='Hadir').length )
-
-const loadStudents = async () => {
-  try{
-    const res = await axios.get(`${backendUrl}/students`)
-    students.value = await Promise.all(res.data.map(async s=>({
-      ...s,
-      status: JSON.parse(localStorage.getItem('attendance_students')||'[]').find(c=>c.nis===s.nis)?.status||'',
-      qrCode: await QRCode.toDataURL(s.nis)
-    })))
-    localStorage.setItem('attendance_students', JSON.stringify(students.value.map(s=>({nis:s.nis,status:s.status,name:s.name,class:s.class}))))
-  }catch{}
+// ================= DARK MODE =================
+const darkMode = ref(localStorage.getItem('darkMode') === 'true')
+const toggleDarkMode = () => {
+  darkMode.value = !darkMode.value
+  localStorage.setItem('darkMode', darkMode.value)
 }
 
-const updateStatusWithHistory = async (nis,status) => {
-  const student = students.value.find(s=>s.nis===nis)
-  if(!student) return
-  
-  // Send to backend
-  try {
-    await axios.post(`${backendUrl}/attendance/scan`, { nis })
-  } catch(err) {
-    console.error('Backend save failed:', err)
-    showToast('⚠️ Tersimpan lokal, backend error', 'warning')
+// ================= TOAST =================
+const toastVisible = ref(false)
+const toastMessage = ref('')
+const toastType = ref('success')
+const showToast = (msg, type='success') => {
+  toastMessage.value = msg
+  toastType.value = type
+  toastVisible.value = true
+  setTimeout(() => toastVisible.value = false, 3000)
+}
+
+// ================= COMPUTED =================
+const avatarInitial = computed(() =>
+  user.value.name ? user.value.name[0].toUpperCase() : 'G'
+)
+
+// LOGIC: Filter berdasarkan tab dan pencarian
+const filteredStudents = computed(() => {
+  let list = students.value
+
+  // Filter berdasarkan tab
+  if (activeTab.value === 'hadir') {
+    list = list.filter(s => s.status && s.status !== '')
+  } else if (activeTab.value === 'belum') {
+    list = list.filter(s => !s.status || s.status === '')
   }
-  
-  const time = new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-  student.status=status
-  attendanceHistory.value.unshift({nis:student.nis,name:student.name,status,time})
-  localStorage.setItem('attendance_history',JSON.stringify(attendanceHistory.value))
-  localStorage.setItem('attendance_students',JSON.stringify(students.value.map(s=>({nis:s.nis,status:s.status,name:s.name,class:s.class}))))
-  showToast(`✅ ${student.name} → ${status}`)
+
+  // Filter berdasarkan pencarian
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    list = list.filter(s => 
+      s.name.toLowerCase().includes(q) || 
+      s.nis.includes(q)
+    )
+  }
+
+  return list
+})
+
+const hadirCount = computed(() =>
+  students.value.filter(s => s.status === 'Hadir').length
+)
+
+// ================= LOAD STUDENTS =================
+const loadStudents = async () => {
+  try {
+    const res = await axios.get(`${backendUrl}/students`)
+    students.value = res.data.map(s => ({ ...s, history: s.history || [] }))
+  } catch(err) {
+    console.error('Load siswa gagal:', err)
+  }
 }
 
-const startQrScan = async () => {
-  qrScannerVisible.value=true
-  scannedNis.value.clear()
-  setTimeout(async()=>{
-    html5QrCode=new Html5Qrcode('qr-reader')
-    const cams=await Html5Qrcode.getCameras()
-    if(!cams.length) return
-    await html5QrCode.start(cams[cams.length-1].id,{fps:12,qrbox:320},decoded=>{
-      if(scannedNis.value.has(decoded)) return
-      const student=students.value.find(s=>s.nis===decoded)
-      if(!student){ showToast('❌ QR tidak valid','error'); return }
-      scannedNis.value.add(decoded)
-      updateStatusWithHistory(decoded,'Hadir')
-      successSound.currentTime=0; successSound.play()
-      if(navigator.vibrate) navigator.vibrate(200)
-    })
-  },300)
-}
-const stopQrScan = async () => { if(html5QrCode){ await html5QrCode.stop(); await html5QrCode.clear() } qrScannerVisible.value=false }
-
-const resetAllAttendance = ()=>{
-  students.value.forEach(s=>s.status='')
-  attendanceHistory.value=[]
-  localStorage.setItem('attendance_students',JSON.stringify(students.value.map(s=>({nis:s.nis,status:s.status,name:s.name,class:s.class}))))
-  localStorage.setItem('attendance_history',JSON.stringify(attendanceHistory.value))
-  showToast('✅ Semua kehadiran di-reset','success')
+// ================= RESET =================
+const resetAllAttendance = async () => {
+  if(!confirm('Bersihkan semua data kehadiran hari ini?')) return
+  try {
+    for (const s of students.value) {
+      await axios.patch(`${backendUrl}/students/attendance/${s.nis}`, {
+        status: '',
+        method: 'system'
+      })
+      s.status = ''
+      s.history = []
+    }
+    showToast('♻ Database kehadiran telah direset')
+  } catch (e) {
+    showToast('Gagal mereset data', 'error')
+  }
 }
 
 const logout = () => {
-  stopQrScan()
   localStorage.clear()
-  showToast('👋 Berhasil Logout')
-  setTimeout(() => router.replace('/login'), 500)
+  router.replace('/login')
 }
 
-let pollingInterval = null
+const generateQr = async () => {
+  const qrData = `${guruToken}-${Date.now()}`
+  guruQr.value = await QRCode.toDataURL(qrData)
+}
 
-onMounted(async()=>{
-  user.value.role=localStorage.getItem('role')||'guru'
-  user.value.name=localStorage.getItem('teacherName')||'Guru'
+const toggleHistory = (nis) => {
+  showHistoryFor.value = showHistoryFor.value === nis ? null : nis
+}
+
+onMounted(async () => {
+  user.value.name = localStorage.getItem('teacherName') || 'Guru'
   await loadStudents()
-
-  // Polling: Refresh data setiap 5 detik untuk sync dengan backend
-  pollingInterval = setInterval(async () => {
-    await loadStudents()
-  }, 5000)
+  await generateQr()
+  qrInterval = setInterval(generateQr, 20000)
 })
 
 onUnmounted(() => {
-  stopQrScan()
-  if(pollingInterval) clearInterval(pollingInterval)
+  if(qrInterval) clearInterval(qrInterval)
 })
 </script>
 
-
 <template>
-<div class="dashboard">
+<div :class="['app-container', darkMode ? 'dark' : 'light']">
 
-  <!-- HEADER -->
-  <header class="header">
-    <div class="left">
-      <div class="avatar">{{ avatarInitial }}</div>
-      <div class="info">
-        <span class="name">{{ user.name }}</span>
-        <span class="role">{{ user.role.toUpperCase() }}</span>
-        <span v-if="user.mapel" class="mapel">{{ user.mapel }}</span>
-      </div>
+  <Transition name="toast">
+    <div v-if="toastVisible" class="toast-notif" :class="toastType">
+      <span class="toast-icon">{{ toastType === 'success' ? '✅' : '❌' }}</span>
+      {{ toastMessage }}
     </div>
-    <div class="right">
-      <button @click="logout" class="logout-btn">🚪 Logout</button>
-    </div>
-  </header>
+  </Transition>
 
-  <!-- STATS -->
-  <section class="stats" v-if="user.role==='guru'">
-    <div class="stat-card">
-      <div class="stat-icon hadir"><span class="material-icons">check_circle</span></div>
-      <div class="stat-info">
-        <span class="value">{{ hadirCount }}</span>
-        <span class="label">Hadir Hari Ini</span>
-      </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon total"><span class="material-icons">school</span></div>
-      <div class="stat-info">
-        <span class="value">{{ students.length }}</span>
-        <span class="label">Total Siswa</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- MENU -->
-  <section class="menu" v-if="user.role==='guru'">
-    <div class="menu-card" @click="startQrScan">
-      <div class="menu-icon scanner"><span class="material-icons">qr_code_scanner</span></div>
-      <span>Scan QR Absen</span>
-    </div>
-  </section>
-
-  <!-- SISWA -->
-  <section class="activity" v-if="user.role==='guru'">
-    <input v-model="searchQuery" placeholder="Cari siswa..." class="search-input" />
-    <ul v-if="loadingStudents" class="empty">Memuat siswa...</ul>
-    <ul v-else>
-      <li v-for="s in filteredStudents" :key="s.nis" class="student-card">
-        <div class="student-left">
-          <div class="mini-avatar">{{ s.name.charAt(0).toUpperCase() }}</div>
-          <div class="detail">
-            <strong>{{ s.name }}</strong>
-            <small>{{ s.class }} - NIS: {{ s.nis }}</small>
-          </div>
-          <img v-if="s.qrCode" :src="s.qrCode" class="qr-code" @click="openQrModal(s.qrCode)" />
+  <nav class="glass-nav">
+    <div class="nav-content">
+      <div class="user-profile">
+        <div class="avatar-ring">
+          <div class="avatar-box">{{ avatarInitial }}</div>
+          <div class="online-indicator"></div>
         </div>
-        <div class="status-buttons">
-          <button @click="updateStatusWithHistory(s.nis,'Hadir')" :class="{active:s.status==='Hadir', hadir:true}">🟢 Hadir</button>
-          <button @click="updateStatusWithHistory(s.nis,'Izin')" :class="{active:s.status==='Izin', izin:true}">🟡 Izin</button>
-          <button @click="updateStatusWithHistory(s.nis,'Sakit')" :class="{active:s.status==='Sakit', sakit:true}">🔵 Sakit</button>
-          <button @click="updateStatusWithHistory(s.nis,'Alfa')" :class="{active:s.status==='Alfa', alfa:true}">🔴 Alfa</button>
+        <div class="user-text">
+          <span class="welcome">Selamat Mengajar,</span>
+          <span class="user-name">{{ user.name }}</span>
         </div>
-        <span v-if="s.status" class="current-status">{{ s.status }}</span>
-      </li>
-    </ul>
-
-    <button @click="resetAllAttendance" class="reset-all-btn">♻ Reset Semua Kehadiran</button>
-
-    <div v-if="qrScannerVisible" id="qr-reader" class="qr-scanner"></div>
-
-    <!-- QR MODAL -->
-    <div v-if="qrModalVisible" class="modal-overlay">
-      <div class="modal-content">
-        <button @click="closeQrModal" class="close-btn">&times;</button>
-        <img :src="selectedQr" class="modal-qr" />
-        <button @click="downloadQr(selectedQr,'QR_Code')" class="download-btn">Download QR</button>
+      </div>
+      <div class="nav-actions">
+        <button @click="toggleDarkMode" class="circle-btn">
+          {{ darkMode ? '☀️' : '🌙' }}
+        </button>
+        <button @click="logout" class="circle-btn logout">🚪</button>
       </div>
     </div>
+  </nav>
 
-    <!-- RIWAYAT ABSENSI -->
-    <section class="history">
-      <h3>🕒 Riwayat Absensi</h3>
-      <div v-if="attendanceHistory.length===0" class="empty">Belum ada riwayat absensi</div>
-      <div v-else>
-        <ul>
-          <li v-for="(h,i) in attendanceHistory" :key="i" class="history-item">
-            <strong>{{ h.name }}</strong>
-            <span>{{ h.status }}</span>
-            <small>{{ h.time }}</small>
-          </li>
-        </ul>
+  <main class="content-wrapper">
+    <section class="hero-card">
+      <div class="hero-info">
+        <h3>Laporan Kehadiran</h3>
+        <p>Pantau partisipasi siswa secara real-time</p>
+      </div>
+      <div class="stats-row">
+        <div class="stat-pill">
+          <span class="s-val">{{ hadirCount }}</span>
+          <span class="s-lab">Hadir</span>
+        </div>
+        <div class="stat-separator"></div>
+        <div class="stat-pill">
+          <span class="s-val">{{ students.length }}</span>
+          <span class="s-lab">Total Siswa</span>
+        </div>
       </div>
     </section>
-  </section>
 
-  <!-- JADWAL -->
-  <section class="schedule">
-    <h3>Jadwal Pelajaran</h3>
-    <ul v-if="loadingSchedule" class="empty">Memuat jadwal...</ul>
-    <ul v-else>
-      <li v-for="sc in schedule" :key="sc._id" class="schedule-item">
-        <strong>{{ sc.mapel }}</strong> - {{ sc.hari }}, {{ sc.jam }}
-        <small>Guru: {{ sc.guru }}</small>
-      </li>
-    </ul>
-  </section>
+    <section class="qr-trigger-section">
+      <button @click="showQrModal=true" class="qr-main-button">
+        <div class="qr-icon-wrap">
+          <div class="qr-inner-icon">📱</div>
+        </div>
+        <div class="qr-btn-text">
+          <strong>Buka QR Absensi</strong>
+          <span>Scan untuk mencatat kehadiran</span>
+        </div>
+        <span class="chevron">→</span>
+      </button>
+    </section>
+
+    <section class="student-section">
+      <div class="section-header">
+        <div class="tab-switcher">
+          <button @click="activeTab = 'hadir'" :class="{ active: activeTab === 'hadir' }">Sudah Absen</button>
+          <button @click="activeTab = 'belum'" :class="{ active: activeTab === 'belum' }">Belum Absen</button>
+          <button @click="activeTab = 'semua'" :class="{ active: activeTab === 'semua' }">Semua</button>
+        </div>
+        
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input v-model="searchQuery" placeholder="Cari nama siswa..." />
+        </div>
+      </div>
+
+      <div class="list-wrapper">
+        <TransitionGroup name="list" tag="div" class="list-anim">
+          <div v-for="s in filteredStudents" :key="s.nis" class="student-card-modern">
+            <div class="card-body">
+              <div class="s-avatar">{{ s.name.charAt(0) }}</div>
+              <div class="s-details">
+                <h4>{{ s.name }}</h4>
+                <p>{{ s.class || 'Kelas -' }} • {{ s.nis }}</p>
+              </div>
+              <div class="s-status">
+                <span :class="['badge', s.status || 'None']">{{ s.status || 'Pending' }}</span>
+              </div>
+            </div>
+            
+            <div class="card-footer">
+              <button @click="toggleHistory(s.nis)" class="history-toggle-btn">
+                {{ showHistoryFor === s.nis ? 'Tutup Detail' : 'Lihat Waktu Absen' }}
+              </button>
+              <Transition name="expand">
+                <div v-if="showHistoryFor === s.nis" class="history-content">
+                  <div v-if="s.history.length > 0" class="history-timeline">
+                    <div v-for="(h, i) in s.history" :key="i" class="time-node">
+                      <span class="node-dot"></span>
+                      <span class="node-status">{{ h.status }}</span>
+                      <span class="node-time">{{ new Date(h.date).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="empty-node">Belum ada riwayat tercatat</div>
+                </div>
+              </Transition>
+            </div>
+          </div>
+        </TransitionGroup>
+
+        <div v-if="filteredStudents.length === 0" class="empty-state">
+          <div class="empty-illu">📂</div>
+          <p>Tidak ada data siswa ditemukan</p>
+        </div>
+      </div>
+
+      <button @click="resetAllAttendance" class="danger-outline-btn">
+        🗑️ Reset Data Absensi Hari Ini
+      </button>
+    </section>
+  </main>
+
+  <Transition name="modal">
+    <div v-if="showQrModal" class="modal-overlay" @click.self="showQrModal=false">
+      <div class="modal-card">
+        <div class="modal-line"></div>
+        <div class="modal-top">
+          <h4>Scan QR Code</h4>
+          <p>Siswa silakan scan kode di bawah ini</p>
+          <button class="close-modal-btn" @click="showQrModal=false">✕</button>
+        </div>
+        <div class="qr-container-box">
+          <img :src="guruQr" class="qr-img" />
+          <div class="qr-loader"></div>
+        </div>
+        <div class="qr-footer-msg">
+          <span class="sync-icon">🔄</span> Terupdate otomatis setiap 20 detik
+        </div>
+      </div>
+    </div>
+  </Transition>
+
 </div>
 </template>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+/* BASE STYLES */
+.app-container {
+  min-height: 100vh;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  padding-bottom: 60px;
+}
+.light { background: #f0f4f8; color: #1a202c; }
+.dark { background: #0b0e14; color: #e2e8f0; }
 
-.dashboard { background:#f0f2f5; min-height:100vh; padding:20px; font-family:'Inter',sans-serif; }
-.header { display:flex; justify-content:space-between; align-items:center; background:white; padding:14px 20px; border-radius:16px; box-shadow:0 6px 20px rgba(0,0,0,0.08); margin-bottom:24px; }
-.left { display:flex; align-items:center; gap:14px; }
-.avatar { width:52px; height:52px; border-radius:50%; background:linear-gradient(135deg,#4f46e5,#8b5cf6); color:white; display:flex; justify-content:center; align-items:center; font-weight:700; font-size:1.4rem; box-shadow:0 4px 10px rgba(0,0,0,0.1); }
-.info .name { font-weight:700; color:#111827; display:block; font-size:1rem; }
-.info .role,.info .mapel { font-size:.75rem; color:#6b7280; display:block; }
-.right { display:flex; align-items:center; gap:12px; }
-.logout-btn { padding:8px 16px; border:none; border-radius:12px; background:#ef4444; color:white; cursor:pointer; font-size:.8rem; box-shadow:0 4px 10px rgba(0,0,0,0.1); transition:0.2s; }
-.logout-btn:hover { transform:scale(1.05); }
-.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:16px; margin-bottom:24px; }
-.stat-card { display:flex; align-items:center; background:white; border-radius:16px; padding:16px; gap:14px; box-shadow:0 6px 20px rgba(0,0,0,0.08); transition:0.2s; }
-.stat-card:hover { transform:translateY(-2px); }
-.stat-icon { width:56px; height:56px; border-radius:14px; display:flex; justify-content:center; align-items:center; color:white; font-size:1.8rem; box-shadow:0 3px 6px rgba(0,0,0,0.1); }
-.stat-icon.hadir { background:#10b981 }
-.stat-icon.total { background:#3b82f6 }
-.stat-info .value { font-size:1.3rem; font-weight:700; color:#111827; }
-.stat-info .label { font-size:.75rem; color:#6b7280; }
-.menu { display:flex; gap:14px; margin-bottom:24px; flex-wrap:wrap; }
-.menu-card { background:white; border-radius:16px; padding:14px; display:flex; align-items:center; gap:12px; cursor:pointer; box-shadow:0 4px 12px rgba(0,0,0,0.08); transition:0.2s; font-weight:600; }
-.menu-card:hover { transform:translateY(-2px) scale(1.02); }
-.menu-icon { width:46px; height:46px; border-radius:12px; display:flex; justify-content:center; align-items:center; color:white; font-size:1.6rem; box-shadow:0 3px 6px rgba(0,0,0,0.1); }
-.menu-icon.scanner { background:#8b5cf6; }
-.student-card { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; background:white; padding:14px; border-radius:16px; margin-bottom:12px; box-shadow:0 4px 12px rgba(0,0,0,0.06); transition:0.2s; }
-.student-card:hover { transform:translateY(-2px); }
-.student-left { display:flex; align-items:center; gap:14px; flex:1 1 250px; }
-.mini-avatar { width:44px; height:44px; border-radius:50%; background:#4f46e5; color:white; display:flex; justify-content:center; align-items:center; font-weight:700; font-size:1rem; box-shadow:0 2px 6px rgba(0,0,0,0.1); }
-.detail strong { display:block; font-size:0.95rem; color:#111827; }
-.detail small { display:block; color:#6b7280; font-size:0.75rem; }
-.qr-code { width:60px; height:60px; border:1px solid #e5e7eb; border-radius:12px; cursor:pointer; transition:0.2s; }
-.qr-code:hover { transform:scale(1.05); }
-.status-buttons { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
-.status-buttons button { padding:6px 12px; border-radius:12px; border:none; cursor:pointer; font-size:.75rem; transition:0.2s; font-weight:600; }
-.status-buttons button.active { color:white; }
-.status-buttons button.hadir { background:#10b981; color:white; }
-.status-buttons button.izin { background:#facc15; color:#111827; }
-.status-buttons button.sakit { background:#3b82f6; color:white; }
-.status-buttons button.alfa { background:#ef4444; color:white; }
-.current-status { font-size:.75rem; font-weight:600; margin-left:10px; margin-top:4px; }
-.search-input { width:100%; padding:10px 14px; border-radius:14px; border:1px solid #d1d5db; margin-bottom:14px; font-size:0.9rem; }
-.qr-scanner { width:100%; max-width:400px; margin-top:16px; border-radius:12px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.1); }
-.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; justify-content:center; align-items:center; z-index:50; }
-.modal-content { background:white; border-radius:16px; padding:20px; position:relative; display:flex; flex-direction:column; align-items:center; gap:16px; width:280px; }
-.close-btn { position:absolute; top:10px; right:10px; font-size:1.5rem; background:none; border:none; cursor:pointer; }
-.modal-qr { width:220px; height:220px; object-fit:contain; border-radius:16px; }
-.download-btn { background:#8b5cf6; color:white; padding:10px 16px; border-radius:12px; cursor:pointer; font-weight:600; transition:0.2s; }
-.download-btn:hover { transform:scale(1.05); }
-.schedule { margin-top:24px; }
-.schedule-item { display:flex; justify-content:space-between; padding:14px; background:white; border-radius:16px; margin-bottom:12px; box-shadow:0 4px 12px rgba(0,0,0,0.06); transition:0.2s; }
-.schedule-item:hover { transform:translateY(-2px); }
-.empty { text-align:center; color:#9ca3af; padding:20px; font-size:0.9rem; }
-.history { margin-top:24px; }
-.history h3 { font-size:1rem; font-weight:600; margin-bottom:12px; color:#111827; }
-.history-item { display:flex; justify-content:space-between; align-items:center; background:white; padding:12px; border-radius:14px; margin-bottom:8px; box-shadow:0 4px 12px rgba(0,0,0,0.06); }
-.reset-all-btn { display:block; margin:16px 0; padding:10px 16px; background:#ef4444; color:white; border:none; border-radius:12px; font-weight:600; cursor:pointer; transition:0.2s; }
-.reset-all-btn:hover { transform:scale(1.05); }
-@media (max-width:768px){
-  .stats { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
-  .student-card { flex-direction:column; align-items:flex-start; }
-  .status-buttons { justify-content:flex-start; }
+/* NAVIGATION */
+.glass-nav {
+  position: sticky; top: 0; z-index: 100;
+  backdrop-filter: blur(12px);
+  padding: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.light .glass-nav { background: rgba(240, 244, 248, 0.8); }
+.dark .glass-nav { background: rgba(11, 14, 20, 0.8); }
+
+.nav-content {
+  max-width: 600px; margin: 0 auto;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.user-profile { display: flex; align-items: center; gap: 12px; }
+.avatar-ring { position: relative; }
+.avatar-box {
+  width: 44px; height: 44px; border-radius: 14px;
+  background: linear-gradient(135deg, #4f46e5, #9333ea);
+  color: white; display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 1.2rem; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+}
+.online-indicator {
+  position: absolute; bottom: -2px; right: -2px;
+  width: 12px; height: 12px; background: #10b981;
+  border: 2px solid white; border-radius: 50%;
+}
+.user-text { display: flex; flex-direction: column; }
+.welcome { font-size: 0.7rem; opacity: 0.6; }
+.user-name { font-weight: 700; font-size: 0.95rem; }
+
+.nav-actions { display: flex; gap: 10px; }
+.circle-btn {
+  width: 40px; height: 40px; border-radius: 50%; border: none;
+  background: white; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; font-size: 1.1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05); transition: 0.3s;
+}
+.dark .circle-btn { background: #1e293b; color: white; }
+.circle-btn.logout { color: #ef4444; }
+.circle-btn:active { transform: scale(0.9); }
+
+/* CONTENT WRAPPER */
+.content-wrapper { max-width: 600px; margin: 0 auto; padding: 20px 16px; }
+
+/* HERO CARD */
+.hero-card {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  color: white; border-radius: 28px; padding: 24px;
+  margin-bottom: 20px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+  position: relative; overflow: hidden;
+}
+.hero-card::after {
+  content: ''; position: absolute; top: -50%; right: -20%;
+  width: 200px; height: 200px; background: rgba(79, 70, 229, 0.2);
+  filter: blur(50px); border-radius: 50%;
+}
+.hero-info h3 { font-size: 1.4rem; margin: 0; font-weight: 800; }
+.hero-info p { font-size: 0.85rem; opacity: 0.7; margin: 6px 0 20px 0; }
+
+.stats-row { display: flex; align-items: center; background: rgba(255,255,255,0.05); border-radius: 18px; padding: 12px; }
+.stat-pill { flex: 1; text-align: center; display: flex; flex-direction: column; }
+.s-val { font-size: 1.5rem; font-weight: 800; }
+.s-lab { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; }
+.stat-separator { width: 1px; height: 30px; background: rgba(255,255,255,0.1); }
+
+/* QR TRIGGER BUTTON */
+.qr-trigger-section { margin-bottom: 30px; }
+.qr-main-button {
+  width: 100%; padding: 16px; border-radius: 24px; border: none;
+  background: white; display: flex; align-items: center; gap: 16px;
+  cursor: pointer; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05);
+  transition: 0.3s;
+}
+.dark .qr-main-button { background: #1e293b; color: white; }
+.qr-icon-wrap {
+  width: 50px; height: 50px; border-radius: 16px;
+  background: #eef2ff; display: flex; align-items: center; justify-content: center;
+}
+.dark .qr-icon-wrap { background: #312e81; }
+.qr-inner-icon { font-size: 1.5rem; }
+.qr-btn-text { flex: 1; text-align: left; display: flex; flex-direction: column; }
+.qr-btn-text strong { font-size: 1rem; }
+.qr-btn-text span { font-size: 0.75rem; opacity: 0.6; }
+.chevron { font-size: 1.2rem; opacity: 0.3; }
+.qr-main-button:hover { transform: translateY(-3px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+
+/* SECTION HEADER & TABS */
+.section-header { margin-bottom: 16px; }
+.tab-switcher {
+  display: flex; gap: 8px; background: rgba(0,0,0,0.03);
+  padding: 6px; border-radius: 14px; margin-bottom: 16px;
+}
+.dark .tab-switcher { background: rgba(255,255,255,0.05); }
+.tab-switcher button {
+  flex: 1; border: none; padding: 8px; border-radius: 10px;
+  font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  background: transparent; color: inherit; transition: 0.3s;
+}
+.tab-switcher button.active {
+  background: white; box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+.dark .tab-switcher button.active { background: #334155; }
+
+.search-box {
+  position: relative; display: flex; align-items: center;
+}
+.search-icon { position: absolute; left: 14px; opacity: 0.4; }
+.search-box input {
+  width: 100%; padding: 12px 12px 12px 42px; border-radius: 16px;
+  border: 1px solid transparent; outline: none; background: white;
+  font-size: 0.9rem; transition: 0.3s;
+}
+.dark .search-box input { background: #1e293b; color: white; }
+.search-box input:focus { border-color: #6366f1; }
+
+/* STUDENT CARDS */
+.student-card-modern {
+  background: white; border-radius: 20px; margin-bottom: 12px;
+  padding: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+  transition: 0.3s; border: 1px solid rgba(0,0,0,0.02);
+}
+.dark .student-card-modern { background: #1e293b; border-color: rgba(255,255,255,0.05); }
+
+.card-body { display: flex; align-items: center; gap: 14px; }
+.s-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: #f1f5f9; display: flex; align-items: center;
+  justify-content: center; font-weight: 800; color: #6366f1;
+}
+.dark .s-avatar { background: #0f172a; }
+.s-details { flex: 1; }
+.s-details h4 { margin: 0; font-size: 0.95rem; font-weight: 700; }
+.s-details p { margin: 2px 0 0 0; font-size: 0.75rem; opacity: 0.6; }
+
+.badge {
+  font-size: 0.7rem; font-weight: 800; padding: 5px 12px; border-radius: 8px;
+  text-transform: uppercase;
+}
+.badge.Hadir { background: #dcfce7; color: #15803d; }
+.badge.Izin { background: #fef9c3; color: #a16207; }
+.badge.Sakit { background: #e0f2fe; color: #0369a1; }
+.badge.Alfa { background: #fee2e2; color: #b91c1c; }
+.badge.None { background: #f1f5f9; color: #64748b; }
+
+.card-footer { margin-top: 12px; border-top: 1px solid rgba(0,0,0,0.03); padding-top: 10px; }
+.dark .card-footer { border-color: rgba(255,255,255,0.05); }
+.history-toggle-btn {
+  background: none; border: none; color: #6366f1;
+  font-size: 0.75rem; font-weight: 700; cursor: pointer;
+}
+
+.history-content { margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.02); border-radius: 12px; }
+.dark .history-content { background: rgba(0,0,0,0.2); }
+.history-timeline { display: flex; flex-direction: column; gap: 8px; }
+.time-node { display: flex; align-items: center; gap: 10px; font-size: 0.75rem; }
+.node-dot { width: 6px; height: 6px; background: #6366f1; border-radius: 50%; }
+.node-time { margin-left: auto; opacity: 0.5; }
+
+/* DANGER ACTION */
+.danger-outline-btn {
+  width: 100%; margin-top: 30px; padding: 14px; border-radius: 16px;
+  background: none; border: 1.5px dashed #ef4444; color: #ef4444;
+  font-weight: 700; font-size: 0.85rem; cursor: pointer; transition: 0.3s;
+}
+.danger-outline-btn:hover { background: #fef2f2; }
+.dark .danger-outline-btn:hover { background: rgba(239, 68, 68, 0.1); }
+
+/* MODAL STYLES */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px); display: flex; align-items: flex-end;
+  z-index: 1000;
+}
+.modal-card {
+  background: white; width: 100%; border-radius: 32px 32px 0 0;
+  padding: 24px; position: relative; animation: slideUp 0.4s ease-out;
+}
+.dark .modal-card { background: #1e293b; }
+.modal-line {
+  width: 40px; height: 4px; background: rgba(0,0,0,0.1);
+  border-radius: 2px; margin: -12px auto 20px auto;
+}
+.modal-top { text-align: center; margin-bottom: 24px; }
+.modal-top h4 { margin: 0; font-size: 1.2rem; }
+.modal-top p { font-size: 0.8rem; opacity: 0.6; margin: 4px 0 0 0; }
+.close-modal-btn {
+  position: absolute; top: 20px; right: 20px;
+  width: 32px; height: 32px; border-radius: 50%; border: none;
+  background: #f1f5f9; cursor: pointer;
+}
+.dark .close-modal-btn { background: #0f172a; color: white; }
+
+.qr-container-box {
+  background: white; padding: 20px; border-radius: 24px;
+  display: flex; flex-direction: column; align-items: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+}
+.qr-img { width: 220px; height: 220px; }
+.qr-loader {
+  width: 100%; height: 4px; background: #e0e7ff;
+  border-radius: 2px; margin-top: 15px; position: relative; overflow: hidden;
+}
+.qr-loader::after {
+  content: ''; position: absolute; left: 0; top: 0; height: 100%;
+  background: #6366f1; width: 100%; animation: loadBar 20s linear infinite;
+}
+
+.qr-footer-msg {
+  margin-top: 20px; text-align: center; font-size: 0.75rem; opacity: 0.6;
+}
+
+/* ANIMATIONS */
+@keyframes loadBar { from { width: 100%; } to { width: 0%; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+
+.list-enter-active, .list-leave-active { transition: all 0.4s ease; }
+.list-enter-from, .list-leave-to { opacity: 0; transform: translateX(-20px); }
+
+.expand-enter-active, .expand-leave-active { transition: all 0.3s ease; max-height: 200px; overflow: hidden; }
+.expand-enter-from, .expand-leave-to { max-height: 0; opacity: 0; }
+
+.toast-notif {
+  position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+  padding: 12px 20px; border-radius: 16px; background: #1a202c; color: white;
+  display: flex; align-items: center; gap: 10px; font-weight: 700;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.2); z-index: 2000; font-size: 0.85rem;
+}
+.toast-notif.error { background: #ef4444; }
+
+.empty-state {
+  text-align: center; padding: 40px 0; opacity: 0.5;
+}
+.empty-illu { font-size: 3rem; margin-bottom: 10px; }
+
+/* RESPONSIVE */
+@media (max-width: 480px) {
+  .hero-card { border-radius: 0 0 24px 24px; margin: -20px -16px 20px -16px; }
+  .modal-card { padding-bottom: 40px; }
 }
 </style>

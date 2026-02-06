@@ -3,68 +3,47 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 
-const backendUrl = 'https://backend-test-n4bo.vercel.app'
-
+const backendUrl = 'https://backend-deployys-bere9s.vercel.app'
 const router = useRouter()
+
 const username = ref('')
 const password = ref('')
-const role = ref('guru') // guru | siswa | admin
+const role = ref('guru')
 const error = ref('')
 const loading = ref(false)
 
 const handleLogin = async () => {
   error.value = ''
-
   if (!username.value || !password.value) {
     error.value = 'Email dan password wajib diisi'
     return
   }
 
   loading.value = true
-
   try {
     let endpoint = ''
-
     if (role.value === 'guru') endpoint = '/teachers/login'
-    else if (role.value === 'siswa') endpoint = '/students/login'
-    else if (role.value === 'admin') endpoint = '/admins/login'
+    if (role.value === 'siswa') endpoint = '/students/login'
+    if (role.value === 'admin') endpoint = '/admins/login'
 
     const { data } = await axios.post(`${backendUrl}${endpoint}`, {
       email: username.value,
       password: password.value
     })
 
-    /* ================= RESET SESSION LOGIN SAJA ================= */
-    localStorage.removeItem('isLoggedIn')
-    localStorage.removeItem('role')
-    localStorage.removeItem('token')
-
-    localStorage.removeItem('teacherId')
-    localStorage.removeItem('teacherName')
-    localStorage.removeItem('teacherMapel')
-
-    localStorage.removeItem('studentId')
-    localStorage.removeItem('studentName')
-    localStorage.removeItem('studentNis')
-    localStorage.removeItem('studentClass')
-
-    localStorage.removeItem('adminId')
-    localStorage.removeItem('adminName')
-    localStorage.removeItem('adminEmail')
-
-    /* ================= SET SESSION BARU ================= */
-    localStorage.setItem('isLoggedIn', 'true')
+    // ================= SESSION ONLY =================
+    localStorage.setItem('isLoggedIn','true')
     localStorage.setItem('role', role.value)
 
     if (role.value === 'guru') {
-      localStorage.setItem('teacherId', data.teacherId)
+      localStorage.setItem('teacherId', data._id)
       localStorage.setItem('teacherName', data.name)
       localStorage.setItem('teacherMapel', data.mapel || '')
       router.push('/dashboard')
     }
 
     if (role.value === 'siswa') {
-      localStorage.setItem('studentId', data.studentId)
+      localStorage.setItem('studentId', data._id)
       localStorage.setItem('studentName', data.name)
       localStorage.setItem('studentNis', data.nis)
       localStorage.setItem('studentClass', data.class)
@@ -72,7 +51,7 @@ const handleLogin = async () => {
     }
 
     if (role.value === 'admin') {
-      localStorage.setItem('adminId', data.adminId)
+      localStorage.setItem('adminId', data._id)
       localStorage.setItem('adminName', data.name)
       localStorage.setItem('adminEmail', data.email)
       router.push('/admin-dashboard')
@@ -80,12 +59,12 @@ const handleLogin = async () => {
 
   } catch (err) {
     error.value = err.response?.data?.message || 'Login gagal'
-    alert(error.value)
   } finally {
     loading.value = false
   }
 }
 </script>
+
 
 <template>
   <div class="login-page">
@@ -131,7 +110,6 @@ const handleLogin = async () => {
 </template>
 
 <style scoped>
-/* ==== LOGIN PAGE STYLE ==== */
 .login-page {
   height:100vh;
   display:flex;
@@ -151,82 +129,21 @@ const handleLogin = async () => {
   z-index:1;
 }
 
-.header h1 {
-  margin:0 0 8px 0;
-  font-size:1.5rem;
-  font-weight:700;
-}
+.header h1 { margin:0 0 8px 0; font-size:1.5rem; font-weight:700; }
+.header p { margin:0; color:#6b7280; font-size:0.95rem; }
 
-.header p {
-  margin:0;
-  color:#6b7280;
-  font-size:0.95rem;
-}
+.role-switch { display:flex; gap:10px; margin-bottom:20px; }
+.role-switch button { flex:1; padding:10px; border-radius:8px; border:1px solid #e5e7eb; background:#f9fafb; cursor:pointer; transition:0.2s; font-weight:600; }
+.role-switch button.active { background:#4f46e5; color:white; border-color:#4f46e5; }
 
-.role-switch {
-  display:flex;
-  gap:10px;
-  margin-bottom:20px;
-}
+.form-group { margin-bottom:16px; }
+.form-group input { width:100%; padding:12px; border-radius:8px; border:1px solid #e5e7eb; transition:0.2s; }
+.form-group input:focus { outline:none; border-color:#4f46e5; box-shadow:0 0 0 2px rgba(79,70,229,0.2); }
 
-.role-switch button {
-  flex:1;
-  padding:10px;
-  border-radius:8px;
-  border:1px solid #e5e7eb;
-  background:#f9fafb;
-  cursor:pointer;
-  transition:0.2s;
-  font-weight:600;
-}
+.error-msg { color:#ef4444; margin-bottom:12px; font-size:0.9rem; }
+.btn-primary { width:100%; padding:12px; background:#4f46e5; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; transition:0.2s; }
+.btn-primary:hover { background:#4338ca; }
 
-.role-switch button.active {
-  background:#4f46e5;
-  color:white;
-  border-color:#4f46e5;
-}
-
-.form-group {
-  margin-bottom:16px;
-}
-
-.form-group input {
-  width:100%;
-  padding:12px;
-  border-radius:8px;
-  border:1px solid #e5e7eb;
-  transition:0.2s;
-}
-
-.form-group input:focus {
-  outline:none;
-  border-color:#4f46e5;
-  box-shadow:0 0 0 2px rgba(79,70,229,0.2);
-}
-
-.error-msg {
-  color:#ef4444;
-  margin-bottom:12px;
-  font-size:0.9rem;
-}
-
-.btn-primary {
-  width:100%;
-  padding:12px;
-  background:#4f46e5;
-  color:white;
-  border:none;
-  border-radius:8px;
-  font-weight:bold;
-  cursor:pointer;
-  transition:0.2s;
-}
-
-.btn-primary:hover {
-  background:#4338ca;
-}
-
-/* ================= OVERLAY LOADING ================= */
 .overlay {
   position:fixed;
   top:0;
