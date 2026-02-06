@@ -8,8 +8,8 @@ const router = useRouter()
 const backendUrl = 'https://backend-deployys-bere9s.vercel.app'
 
 // ================= STATE SISWA =================
-const student = ref({ name:'', nis:'', class:'', status:'' })
-const studentsHadir = ref([]) // Hanya menyimpan yang sudah absen
+const student = ref({ name:'', nis:'', class:'', status:'', lastAttendance: null })
+const studentsHadir = ref([]) 
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
 let html5QrCode = null
@@ -17,14 +17,35 @@ let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 const jadwalHariIni = ref([])
 
-// ================= TOAST =================
+// ================= AUDIO & TOAST =================
+const playSuccessSound = () => {
+  const audio = new Audio('/sounds/succes.mp3') // Mengambil dari folder public/sounds/succes.mp3
+  audio.play().catch(e => console.log("Audio play blocked by browser interaction"))
+}
+
 const toast = ref({ show:false, msg:'', type:'success' })
 const showToast = (msg,type='success')=>{
   toast.value = { show:true, msg, type }
   setTimeout(()=>toast.value.show=false,3000)
 }
 
-// ================= COMPUTED =================
+// ================= LOGIKA RESET 24 JAM (CLIENT SIDE) =================
+// Menentukan apakah tombol absen harus muncul kembali
+const canAbsen = computed(() => {
+  if (!student.value.lastAttendance) return true
+  
+  const lastTime = new Date(student.value.lastAttendance).getTime()
+  const now = new Date().getTime()
+  const twentyFourHours = 24 * 60 * 60 * 1000
+  
+  // Jika sudah lebih dari 24 jam, status lokal dianggap "Belum Absen"
+  return (now - lastTime) > twentyFourHours
+})
+
+const displayStatus = computed(() => {
+  return canAbsen.value ? 'Belum Absen' : 'Sudah Hadir'
+})
+
 const hariIni = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
 
 // ================= DATA JADWAL =================
@@ -40,8 +61,8 @@ const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] 
 
 // ================= QR SCANNER =================
 const startScan = async()=>{
-  if(student.value.status === 'Hadir'){
-    showToast('Kamu sudah absen hari ini','success')
+  if(!canAbsen.value){
+    showToast('Kamu sudah absen. Tunggu 24 jam untuk absen lagi.','error')
     return
   }
   qrVisible.value = true
@@ -79,18 +100,23 @@ const stopScan = async()=>{
 // ================= LOGIC UPDATE DATABASE =================
 const submitAttendance = async(decodedText)=>{
   try{
-    // Payload untuk update status & history sesuai skema MongoDB Anda
+    const now = new Date()
     const payload = { 
       status: 'Hadir',
       qrToken: decodedText,
-      timestamp: new Date().toISOString()
+      timestamp: now.toISOString()
     }
     
-    // Kirim PATCH ke backend berdasarkan NIS
     await axios.patch(`${backendUrl}/students/attendance/${student.value.nis}`, payload)
     
+    // Update State Lokal
     student.value.status = 'Hadir'
+    student.value.lastAttendance = now.toISOString()
+    
+    // Suara & Notifikasi
+    playSuccessSound()
     showToast('Berhasil Absen! Data disinkronkan.')
+    
     stopScan()
     loadAttendance() 
   } catch(err){
@@ -102,12 +128,16 @@ const submitAttendance = async(decodedText)=>{
 const loadAttendance = async ()=>{
   try{
     const res = await axios.get(`${backendUrl}/students`)
-    // FILTER: Hanya ambil yang statusnya 'Hadir'
     studentsHadir.value = res.data.filter(s => s.status === 'Hadir')
     
-    // Update status diri sendiri
     const me = res.data.find(s => s.nis === student.value.nis)
-    if(me) student.value.status = me.status
+    if(me) {
+      student.value.status = me.status
+      // Ambil waktu terakhir dari history di database
+      if(me.attendanceHistory && me.attendanceHistory.length > 0) {
+        student.value.lastAttendance = me.attendanceHistory[me.attendanceHistory.length - 1].timestamp || me.updatedAt
+      }
+    }
   } catch(err){ console.log('Syncing...') }
 }
 
@@ -124,12 +154,12 @@ onMounted(()=>{
     name: localStorage.getItem('studentName'), 
     nis, 
     class: localStorage.getItem('studentClass'), 
-    status:'' 
+    status:'',
+    lastAttendance: null
   }
   loadJadwalHariIni()
   loadAttendance()
   
-  // Refresh setiap 5 detik agar list kehadiran tetap update
   const interval = setInterval(loadAttendance, 5000)
   onUnmounted(() => clearInterval(interval))
 })
@@ -157,20 +187,21 @@ onUnmounted(()=> stopScan())
     </header>
 
     <main class="content">
-      <section class="status-box" :class="student.status?.toLowerCase() || 'none'">
+      <section class="status-box" :class="!canAbsen ? 'hadir' : 'none'">
         <div class="status-info">
-          <span>Status Hari Ini</span>
-          <h2>{{ student.status || 'Belum Absen' }}</h2>
-          <p>{{ hariIni }}, {{ new Date().toLocaleDateString('id-ID') }}</p>
+          <span>Status Sekarang</span>
+          <h2>{{ displayStatus }}</h2>
+          <p v-if="!canAbsen" class="reset-info">Dapat absen lagi setelah 24 jam</p>
+          <p v-else>{{ hariIni }}, {{ new Date().toLocaleDateString('id-ID') }}</p>
         </div>
         <div class="status-icon">
-          <svg v-if="student.status === 'Hadir'" viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <svg v-if="!canAbsen" viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
           <svg v-else viewBox="0 0 24 24" width="48" height="48" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
         </div>
       </section>
 
       <div class="action-grid">
-        <button class="action-btn scan" @click="startScan">
+        <button class="action-btn scan" @click="startScan" :disabled="!canAbsen" :class="{'disabled': !canAbsen}">
           <div class="btn-icon">📸</div>
           <span>Scan QR</span>
         </button>
@@ -252,7 +283,8 @@ onUnmounted(()=> stopScan())
   position: relative;
 }
 
-/* Header */
+.reset-info { font-size: 0.7rem; color: #e6fffa; margin-top: 5px; font-style: italic; }
+
 .app-header {
   padding: 25px 20px;
   display: flex;
@@ -273,7 +305,6 @@ onUnmounted(()=> stopScan())
 .meta p { margin: 0; font-size: 0.75rem; color: #718096; }
 .logout-icon { background: none; border: none; color: #e53e3e; cursor: pointer; }
 
-/* Status Box */
 .content { padding: 0 20px 20px 20px; }
 .status-box {
   margin-top: 10px;
@@ -283,23 +314,28 @@ onUnmounted(()=> stopScan())
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(135deg, #3182ce 0%, #2c5282 100%);
+  background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
   transition: all 0.4s ease;
 }
 .status-box.hadir { background: linear-gradient(135deg, #48bb78 0%, #2f855a 100%); }
 .status-info h2 { margin: 5px 0; font-size: 1.8rem; }
 .status-info span { font-size: 0.8rem; opacity: 0.9; }
 
-/* Actions */
 .action-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 25px 0; }
 .action-btn {
   background: white; border: none; padding: 20px; border-radius: 20px;
   display: flex; flex-direction: column; align-items: center; gap: 10px;
   font-weight: 600; color: #2c5282; box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+  cursor: pointer;
+}
+.action-btn.disabled {
+  opacity: 0.6;
+  background: #edf2f7;
+  cursor: not-allowed;
+  color: #a0aec0;
 }
 .btn-icon { font-size: 1.5rem; }
 
-/* List Kehadiran */
 .attendance-list {
   background: white; border-radius: 24px; padding: 20px;
   max-height: 400px; display: flex; flex-direction: column;
@@ -315,7 +351,6 @@ onUnmounted(()=> stopScan())
 .status-tag.Hadir { background: #c6f6d5; color: #2f855a; font-size: 0.7rem; font-weight: bold; padding: 4px 10px; border-radius: 8px; }
 .empty-list { text-align: center; padding: 20px; color: #a0aec0; font-size: 0.85rem; }
 
-/* Scanner & Modals */
 .scanner-modal { position: fixed; inset: 0; background: #000; z-index: 200; display: flex; flex-direction: column; }
 .scanner-header { padding: 20px; color: white; display: flex; justify-content: space-between; align-items: center; }
 .scanner-header button { background: none; border: 1px solid white; color: white; padding: 5px 15px; border-radius: 8px; }
@@ -329,7 +364,6 @@ onUnmounted(()=> stopScan())
 .schedule-item { display: flex; gap: 15px; padding: 15px 0; border-bottom: 1px solid #f7fafc; }
 .time { font-weight: bold; color: #3182ce; font-size: 0.85rem; width: 50px; }
 
-/* Transitions */
 .slide-fade-enter-active { transition: all 0.3s ease-out; }
 .slide-fade-enter-from { transform: translateY(-20px); opacity: 0; }
 .pop-enter-active { transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
