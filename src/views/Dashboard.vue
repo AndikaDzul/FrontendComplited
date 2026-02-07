@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-deployys-bere9s.vercel.app'
+const backendUrl = 'https://backend-deployys-kotc.vercel.app'
 
 // ================= STATE =================
 const user = ref({ name:'', role:'guru', mapel:'' })
@@ -69,7 +69,15 @@ const hadirCount = computed(() =>
 const loadStudents = async () => {
   try {
     const res = await axios.get(`${backendUrl}/students`)
-    students.value = res.data.map(s => ({ ...s, history: s.history || [] }))
+    students.value = res.data.map(s => ({
+      ...s, 
+      attendanceHistory: (s.attendanceHistory || []).map(h => {
+        const d = h.timestamp ? new Date(h.timestamp) : null
+        const hari = d ? d.toLocaleDateString('id-ID', { weekday: 'long' }) : '-'
+        const jam = d ? d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' }) : '-'
+        return { ...h, day: hari, time: jam }
+      })
+    }))
   } catch(err) {
     console.error('Load siswa gagal:', err)
   }
@@ -84,6 +92,7 @@ const resetAllAttendance = async () => {
         method: 'system'
       })
       s.status = ''
+      s.attendanceHistory = []
     }
     showToast('Database kehadiran telah direset')
     loadStudents()
@@ -123,6 +132,7 @@ onUnmounted(() => {
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
 
+  <!-- TOAST -->
   <Transition name="toast">
     <div v-if="toastVisible" class="custom-toast" :class="toastType">
       <i :class="toastType === 'success' ? 'bi bi-check-circle-fill' : 'bi bi-exclamation-triangle-fill'"></i>
@@ -130,6 +140,7 @@ onUnmounted(() => {
     </div>
   </Transition>
 
+  <!-- NAVBAR -->
   <nav class="teacher-nav px-3">
     <div class="nav-content-web">
       <div class="d-flex align-items-center gap-3">
@@ -150,6 +161,7 @@ onUnmounted(() => {
     </div>
   </nav>
 
+  <!-- MAIN -->
   <main class="container py-4" style="max-width: 600px;">
     <section class="dashboard-hero mb-4 shadow-sm">
       <div class="row align-items-center g-0">
@@ -209,13 +221,20 @@ onUnmounted(() => {
               </span>
             </div>
             
-            <div v-if="s.status" class="mt-2 pt-2 border-top-dashed d-flex justify-content-between align-items-center">
+            <!-- DETAIL WAKTU ABSEN -->
+            <div v-if="s.status" class="mt-2 pt-2 border-top-dashed d-flex flex-column gap-1">
                <button @click="toggleHistory(s.nis)" class="btn-detail">
                  {{ showHistoryFor === s.nis ? 'Sembunyikan' : 'Lihat Detail Waktu' }}
                </button>
-               <small v-if="showHistoryFor === s.nis" class="text-primary fw-bold smaller">
-                 <i class="bi bi-stopwatch me-1"></i>07:15 WIB
-               </small>
+
+               <div v-if="showHistoryFor === s.nis">
+               <div v-for="(h, idx) in s.attendanceHistory" :key="idx" class="text-primary smaller">
+  <i class="bi bi-stopwatch me-1"></i>
+  {{ h.day !== '-' ? h.day : 'Belum Absen' }} • {{ h.time !== '-' ? h.time : '' }}
+  <span class="text-muted small">({{ h.method || 'system' }})</span>
+</div>
+
+               </div>
             </div>
           </div>
         </TransitionGroup>
@@ -232,6 +251,7 @@ onUnmounted(() => {
     </button>
   </main>
 
+  <!-- QR MODAL -->
   <Transition name="sheet">
     <div v-if="showQrModal" class="sheet-overlay" @click.self="showQrModal=false">
       <div class="sheet-content">
@@ -263,6 +283,7 @@ onUnmounted(() => {
   </Transition>
 </div>
 </template>
+
 
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');

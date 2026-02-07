@@ -5,17 +5,20 @@ import { Html5Qrcode } from 'html5-qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-deployys-bere9s.vercel.app'
+const backendUrl = 'https://backend-deployys-kotc.vercel.app'
 
 // ================= STATE SISWA =================
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null })
 const studentsHadir = ref([]) 
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
-let html5QrCode = null
+let html5QrCode = null  
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 const jadwalHariIni = ref([])
+
+// State GPS Sekolah (Diambil dari Backend - Hasil setting Admin)
+const schoolConfig = ref({ lat: null, lng: null, radius: 50 })
 
 // ================= AUDIO & TOAST =================
 const playSuccessSound = () => {
@@ -29,16 +32,72 @@ const showToast = (msg,type='success')=>{
   setTimeout(()=>toast.value.show=false,3000)
 }
 
-// ================= LOGIKA RESET 24 JAM =================
+// ================= LOGIKA GEOLOCATION (KONEKSI KE ADMIN) =================
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371e3 // Radius bumi dalam meter
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+  return R * c
+}
+
+const checkLocation = () => {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject("Browser tidak mendukung GPS")
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const userLat = position.coords.latitude
+        const userLng = position.coords.longitude
+
+        // Jika data dari admin belum ada
+        if (!schoolConfig.value.lat || !schoolConfig.value.lng) {
+          reject("Lokasi sekolah belum dikonfigurasi oleh Admin.")
+          return
+        }
+
+        const distance = calculateDistance(
+          userLat, userLng, 
+          schoolConfig.value.lat, schoolConfig.value.lng
+        )
+
+        if (distance <= schoolConfig.value.radius) {
+          resolve(true)
+        } else {
+          reject(`Gagal: Anda berada di luar jangkauan sekolah (${Math.round(distance)}m).`)
+        }
+      },
+      (err) => {
+        reject("Gagal mendapatkan lokasi. Pastikan izin GPS diberikan.")
+      },
+      { enableHighAccuracy: true, timeout: 5000 }
+    )
+  })
+}
+
+// ================= LOGIKA RESET & DISPLAY =================
 const canAbsen = computed(() => {
   if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
   const lastTime = new Date(student.value.lastAttendance).getTime()
   const now = new Date().getTime()
-  const twentyFourHours = 24 * 60 * 60 * 1000
-  return (now - lastTime) > twentyFourHours
+  const intervalReset = 9 * 60 * 60 * 1000 // Reset setelah 9 jam
+  return (now - lastTime) > intervalReset
 })
 
-const displayStatus = computed(() => student.value.status)
+const displayStatus = computed(() => {
+  if(student.value.status === 'Hadir' && student.value.lastAttendance){
+    const dt = new Date(student.value.lastAttendance)
+    return `Hadir - ${dt.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
+  }
+  return student.value.status
+})
+
 const hariIni = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
 
 // ================= DATA JADWAL =================
@@ -52,91 +111,84 @@ const jadwalAll = {
 
 const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] || [] }
 
-// ================= QR SCANNER (REAR CAMERA FIX) =================
+// ================= QR SCANNER DENGAN PROTEKSI LOKASI ADMIN =================
 const startScan = async () => {
   if (!canAbsen.value) {
     showToast('Kamu sudah absen hari ini.', 'error')
     return
   }
 
-  qrVisible.value = true
-  scanning = false
-
-  // Pastikan DOM dirender sebelum mengakses ID "qr-reader"
-  await nextTick()
+  showToast('Memverifikasi Lokasi...', 'info')
 
   try {
-    // Bersihkan jika ada instance lama
+    // 1. Ambil data GPS terbaru dari Admin dulu sebelum scan
+    await loadGpsConfig()
+    
+    // 2. Cek apakah koordinat siswa match dengan radius admin
+    await checkLocation()
+    
+    // 3. Jika lokasi valid, buka scanner
+    qrVisible.value = true
+    scanning = false
+    await nextTick()
+
     if (html5QrCode) {
       try { await html5QrCode.stop() } catch (e) {}
       html5QrCode = null
     }
 
     html5QrCode = new Html5Qrcode("qr-reader")
+    const config = { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }
 
-    const config = { 
-      fps: 15, 
-      qrbox: { width: 250, height: 250 },
-      aspectRatio: 1.0 
-    }
-
-    // MEMULAI KAMERA BELAKANG (environment)
     await html5QrCode.start(
-      { facingMode: { exact: "environment" } }, // Gunakan 'exact' untuk memaksa kamera belakang
+      { facingMode: { exact: "environment" } },
       config,
       async (decodedText) => {
         if (scanning) return
-        
         if (!decodedText.startsWith(guruTokenPrefix)) {
           showToast('QR Code Guru Tidak Valid', 'error')
           return
         }
-
-        scanning = true 
+        scanning = true
         await submitAttendance(decodedText)
       }
     ).catch(async () => {
-      // Fallback jika 'exact' gagal (biasanya di browser PC/Laptop yang tidak punya kamera belakang)
+      // Fallback untuk device yang tidak support exact environment
       await html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
-          if (scanning) return
-          if (decodedText.startsWith(guruTokenPrefix)) {
-            scanning = true
-            await submitAttendance(decodedText)
-          }
+        if (scanning) return
+        if (decodedText.startsWith(guruTokenPrefix)) {
+          scanning = true
+          await submitAttendance(decodedText)
+        }
       })
     })
 
   } catch (err) {
-    console.error("Camera Error:", err)
-    showToast('Kamera tidak ditemukan atau izin ditolak', 'error')
+    showToast(err, 'error')
     qrVisible.value = false
   }
 }
 
 const stopScan = async () => {
   if (html5QrCode) {
-    try {
-      if (html5QrCode.isScanning) {
-        await html5QrCode.stop()
-      }
-    } catch (e) {
-      console.warn("Stop error:", e)
-    } finally {
-      html5QrCode = null
-    }
+    try { if (html5QrCode.isScanning) await html5QrCode.stop() } catch (e) { console.warn(e) }
+    finally { html5QrCode = null }
   }
   qrVisible.value = false
 }
 
-// ================= LOGIC DATABASE =================
+// ================= DATABASE SYNC =================
+const loadGpsConfig = async () => {
+  try {
+    const res = await axios.get(`${backendUrl}/config/gps`)
+    if(res.data) schoolConfig.value = res.data
+  } catch (e) { console.error("Gagal sinkronasi lokasi admin") }
+}
+
 const submitAttendance = async(decodedText)=>{
   try{
     const now = new Date()
-    const payload = { 
-      status: 'Hadir', 
-      qrToken: decodedText, 
-      timestamp: now.toISOString() 
-    }
+    const payload = { status: 'Hadir', qrToken: decodedText, timestamp: now.toISOString() }
     
     await axios.patch(`${backendUrl}/students/attendance/${student.value.nis}`, payload)
     
@@ -181,6 +233,7 @@ onMounted(()=>{
     name: localStorage.getItem('studentName'), nis, 
     class: localStorage.getItem('studentClass'), status:'Belum Absen', lastAttendance: null
   }
+  loadGpsConfig()
   loadJadwalHariIni()
   loadAttendance()
   const interval = setInterval(loadAttendance, 10000)
@@ -197,7 +250,7 @@ onUnmounted(()=> stopScan())
 
     <transition name="toast-fade">
       <div v-if="toast.show" class="custom-toast" :class="toast.type">
-        <i :class="toast.type === 'success' ? 'bi bi-check-circle-fill' : 'bi bi-exclamation-triangle-fill'"></i>
+        <i :class="toast.type === 'success' ? 'bi bi-check-circle-fill' : (toast.type === 'info' ? 'bi bi-geo-alt-fill' : 'bi bi-exclamation-triangle-fill')"></i>
         {{ toast.msg }}
       </div>
     </transition>
@@ -406,6 +459,7 @@ onUnmounted(()=> stopScan())
 /* Toast */
 .custom-toast { position: fixed; top: 25px; left: 50%; transform: translateX(-50%); z-index: 10000; padding: 12px 24px; border-radius: 15px; color: white; display: flex; align-items: center; gap: 10px; font-weight: 700; box-shadow: 0 10px 20px rgba(0,0,0,0.2); background: #1e293b; }
 .custom-toast.error { background: #ef4444; }
+.custom-toast.info { background: #6366f1; }
 
 /* Global Transitions */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
