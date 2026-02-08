@@ -5,7 +5,7 @@ import { Html5Qrcode } from 'html5-qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-absensii-andika-cvwp.vercel.app'
+const backendUrl = 'https://backend-absensii-andika-bvvq.vercel.app'
 
 // ================= STATE SISWA =================
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null })

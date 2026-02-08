@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-absensii-andika-cvwp.vercel.app/'
+const backendUrl = 'https://backend-absensii-andika-bvvq.vercel.app'
 
 // ================= STATE =================
 const user = ref({ name:'', role:'guru', mapel:'' })
