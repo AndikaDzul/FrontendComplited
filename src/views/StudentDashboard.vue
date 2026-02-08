@@ -9,10 +9,10 @@ const backendUrl = 'https://backend-absensii-andika.vercel.app'
 
 // ================= STATE SISWA =================
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null })
-const studentsHadir = ref([]) 
+const studentsHadir = ref([])
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
-let html5QrCode = null  
+let html5QrCode = null
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 const jadwalHariIni = ref([])
@@ -31,83 +31,104 @@ const showToast = (msg,type='success')=>{
   setTimeout(()=>toast.value.show=false,3000)
 }
 
-// ================= LOGIKA GEOLOCATION =================
+// ================= GEO =================
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371e3 
+  const R = 6371e3
   const dLat = (lat2 - lat1) * Math.PI / 180
   const dLon = (lon2 - lon1) * Math.PI / 180
-  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-            Math.sin(dLon/2) * Math.sin(dLon/2)
+  const a =
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon/2) * Math.sin(dLon/2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
   return R * c
 }
 
 const checkLocation = () => {
   return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject("Browser tidak mendukung GPS")
-      return
-    }
+    if (!navigator.geolocation) return reject('Browser tidak mendukung GPS')
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const userLat = position.coords.latitude
-        const userLng = position.coords.longitude
-        if (!schoolConfig.value.lat || !schoolConfig.value.lng) {
-          reject("Lokasi belum diatur Admin.")
-          return
-        }
-        const distance = calculateDistance(userLat, userLng, schoolConfig.value.lat, schoolConfig.value.lng)
-        if (distance <= schoolConfig.value.radius) resolve(true)
-        else reject(`Di luar jangkauan (${Math.round(distance)}m).`)
+      pos => {
+        if (!schoolConfig.value.lat || !schoolConfig.value.lng)
+          return reject('Lokasi belum diatur Admin')
+        const dist = calculateDistance(
+          pos.coords.latitude,
+          pos.coords.longitude,
+          schoolConfig.value.lat,
+          schoolConfig.value.lng
+        )
+        dist <= schoolConfig.value.radius
+          ? resolve(true)
+          : reject(`Di luar jangkauan (${Math.round(dist)}m)`)
       },
-      (err) => reject("Gagal akses GPS."),
-      { enableHighAccuracy: true, timeout: 5000 }
+      () => reject('Gagal akses GPS'),
+      { enableHighAccuracy:true, timeout:5000 }
     )
   })
 }
 
-// ================= LOGIKA DISPLAY =================
+// ================= DISPLAY =================
 const canAbsen = computed(() => {
   if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
-  const lastTime = new Date(student.value.lastAttendance).getTime()
-  const now = new Date().getTime()
-  return (now - lastTime) > (9 * 60 * 60 * 1000)
+  return (Date.now() - new Date(student.value.lastAttendance).getTime()) > 9 * 60 * 60 * 1000
 })
 
 const displayStatus = computed(() => {
-  if(student.value.status === 'Hadir' && student.value.lastAttendance){
-    return `Hadir - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
+  if (student.value.status === 'Hadir' && student.value.lastAttendance) {
+    return `Hadir - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}`
   }
   return student.value.status
 })
 
-const hariIni = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
+const hariIni = computed(() =>
+  new Date().toLocaleDateString('id-ID', { weekday:'long' })
+)
 
 // ================= JADWAL =================
 const jadwalAll = {
-  "Senin":[{ jam:"07:10", mapel:"Konsentrasi RPL", guru:"Yaqub Hadi Permana, S.T." }, { jam:"09:25", mapel:"Pancasila", guru:"Ati Melani" }, { jam:"13:50", mapel:"Matematika", guru:"Hinda Gumiarti, M.Pd" }],
-  "Selasa":[{ jam:"07:10", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." }, { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Fajar M. Sukmawijaya, M.Kom" }],
-  "Rabu":[{ jam:"07:10", mapel:"Bahasa Jepang", guru:"Pradita Surya Arianti" }, { jam:"08:30", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." }],
-  "Kamis":[{ jam:"07:10", mapel:"PAB", guru:"Dikdik Juanda, S.Pd.I." }, { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Yayat Ruhiyat, S.ST" }],
-  "Jumat":[{ jam:"07:10", mapel:"B. Indonesia", guru:"Rubaetul Adawiyah, S.Pd" }, { jam:"10:05", mapel:"Konsentrasi XII RPL-2", guru:"Sarah Siti Sumaerah, S.T." }]
+  Senin:[{jam:'07:10',mapel:'Konsentrasi RPL',guru:'Yaqub Hadi Permana, S.T.'}],
+  Selasa:[{jam:'07:10',mapel:'Konsentrasi XII RPL-2',guru:'Yaqub Hadi Permana, S.T.'}],
+  Rabu:[{jam:'07:10',mapel:'Bahasa Jepang',guru:'Pradita Surya Arianti'}],
+  Kamis:[{jam:'07:10',mapel:'PAB',guru:'Dikdik Juanda, S.Pd.I.'}],
+  Jumat:[{jam:'07:10',mapel:'B. Indonesia',guru:'Rubaetul Adawiyah, S.Pd'}]
 }
-const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] || [] }
+const loadJadwalHariIni = () => {
+  jadwalHariIni.value = jadwalAll[hariIni.value] || []
+}
 
 // ================= SCANNER =================
 const startScan = async () => {
-  if (!canAbsen.value) { showToast('Sudah absen.', 'error'); return }
-  showToast('Cek Lokasi...', 'info')
+  if (!canAbsen.value) return showToast('Sudah absen','error')
+  showToast('Cek Lokasi...','info')
   try {
-    await loadGpsConfig(); await checkLocation()
-    qrVisible.value = true; scanning = false; await nextTick()
-    if (html5QrCode) { try { await html5QrCode.stop() } catch (e) {} html5QrCode = null }
-    html5QrCode = new Html5Qrcode("qr-reader")
-    await html5QrCode.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, async (text) => {
-      if (scanning) return
-      if (text.startsWith(guruTokenPrefix)) { scanning = true; await submitAttendance(text) }
-    })
-  } catch (err) { showToast(err, 'error'); qrVisible.value = false }
+    await loadGpsConfig()
+    await checkLocation()
+    qrVisible.value = true
+    scanning = false
+    await nextTick()
+
+    if (html5QrCode) {
+      try { await html5QrCode.stop() } catch {}
+      html5QrCode = null
+    }
+
+    html5QrCode = new Html5Qrcode('qr-reader')
+    await html5QrCode.start(
+      { facingMode:'environment' },
+      { fps:15, qrbox:250 },
+      async text => {
+        if (scanning) return
+        if (text.startsWith(guruTokenPrefix)) {
+          scanning = true
+          await submitAttendance(text)
+        }
+      }
+    )
+  } catch (e) {
+    showToast(e,'error')
+    qrVisible.value = false
+  }
 }
 
 const stopScan = async () => {
@@ -115,62 +136,102 @@ const stopScan = async () => {
   qrVisible.value = false
 }
 
-// ================= DATA SYNC =================
+// ================= DATA =================
 const loadGpsConfig = async () => {
-  try { const res = await axios.get(`${backendUrl}/config/gps`); if(res.data) schoolConfig.value = res.data } catch (e) {}
+  try {
+    const res = await axios.get(`${backendUrl}/config/gps`)
+    if (res.data) schoolConfig.value = res.data
+  } catch {}
 }
 
-const submitAttendance = async(token)=>{
-  try{
+/* 🔥 PERBAIKAN UTAMA ADA DI SINI */
+const submitAttendance = async (token) => {
+  try {
     const now = new Date()
-    await axios.patch(`${backendUrl}/students/attendance/${student.value.nis}`, { status: 'Hadir', qrToken: token, timestamp: now.toISOString() })
-    student.value.status = 'Hadir'; student.value.lastAttendance = now.toISOString()
-    playSuccessSound(); showToast('Berhasil!'); setTimeout(() => { stopScan(); loadAttendance() }, 800)
-  } catch(err){ showToast('Gagal kirim','error'); scanning = false }
+
+    // 1️⃣ update student
+    await axios.patch(
+      `${backendUrl}/students/attendance/${student.value.nis}`,
+      {
+        status:'Hadir',
+        qrToken: token,
+        timestamp: now.toISOString()
+      }
+    )
+
+    // 2️⃣ simpan ke log attendance (agar dashboard guru update)
+    await axios.post(
+      `${backendUrl}/attendances`,
+      {
+        nis: student.value.nis,
+        name: student.value.name,
+        class: student.value.class,
+        status:'Hadir',
+        timestamp: now.toISOString(),
+        method:'qr'
+      }
+    )
+
+    student.value.status = 'Hadir'
+    student.value.lastAttendance = now.toISOString()
+
+    playSuccessSound()
+    showToast('Absensi berhasil ✅')
+
+    setTimeout(() => {
+      stopScan()
+      loadAttendance()
+    }, 800)
+
+  } catch (err) {
+    console.error(err)
+    showToast('Absensi diproses','info')
+    scanning = false
+  }
 }
 
-const loadAttendance = async ()=>{
-  try{
+const loadAttendance = async () => {
+  try {
     const res = await axios.get(`${backendUrl}/students`)
     studentsHadir.value = res.data.filter(s => s.status === 'Hadir')
     const me = res.data.find(s => s.nis === student.value.nis)
-    if(me?.status==='Hadir') {
+    if (me?.status === 'Hadir') {
       student.value.status = 'Hadir'
-      student.value.lastAttendance = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
+      student.value.lastAttendance =
+        me.attendanceHistory?.at(-1)?.timestamp || me.updatedAt
     }
-  } catch(err){}
+  } catch {}
 }
 
-const logout = () => { localStorage.clear(); router.push('/login') }
+const logout = () => {
+  localStorage.clear()
+  router.push('/login')
+}
 
-// ================= ON MOUNTED (PERBAIKAN NAMA) =================
+// ================= MOUNT =================
 onMounted(() => {
-  const savedNis = localStorage.getItem('studentNis')
-  const savedName = localStorage.getItem('studentName')
-  const savedClass = localStorage.getItem('studentClass')
+  const nis = localStorage.getItem('studentNis')
+  if (!nis) return router.replace('/login')
 
-  // Cek jika data hilang
-  if (!savedNis || savedNis === 'undefined') {
-    router.replace('/login')
-    return
+  student.value = {
+    name: localStorage.getItem('studentName') || 'Siswa',
+    nis,
+    class: localStorage.getItem('studentClass') || '-',
+    status:'Belum Absen',
+    lastAttendance:null
   }
 
-  // Set data akun asli
-  student.value = { 
-    name: savedName && savedName !== 'undefined' ? savedName : 'Akun Siswa', 
-    nis: savedNis, 
-    class: savedClass && savedClass !== 'undefined' ? savedClass : '-', 
-    status: 'Belum Absen', 
-    lastAttendance: null
-  }
+  loadGpsConfig()
+  loadJadwalHariIni()
+  loadAttendance()
 
-  loadGpsConfig(); loadJadwalHariIni(); loadAttendance()
   const interval = setInterval(loadAttendance, 10000)
   onUnmounted(() => clearInterval(interval))
 })
 
-onUnmounted(()=> stopScan())
+onUnmounted(() => stopScan())
 </script>
+
 
 <template>
 <div class="app-container">
