@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'http://localhost:3000/api'
+const backendUrl = 'https://backend-absensii-andika.vercel.app'
 
 // ================= STATE =================
 const user = ref({ name:'', role:'guru', mapel:'' })
@@ -14,8 +14,8 @@ const searchQuery = ref('')
 const showHistoryFor = ref(null)
 const activeTab = ref('hadir')
 
-// ===== QR GURU =====
-const guruToken = 'ABSENSI-GURU-2026'
+// ===== QR GURU (FIX) =====
+const guruTokenPrefix = 'ABSENSI-GURU'
 const guruQr = ref('')
 let qrInterval = null
 const showQrModal = ref(false)
@@ -45,49 +45,56 @@ const avatarInitial = computed(() =>
 
 const filteredStudents = computed(() => {
   let list = students.value
+
   if (activeTab.value === 'hadir') {
-    list = list.filter(s => s.status && s.status !== '')
+    list = list.filter(s => s.status?.toLowerCase() === 'hadir')
   } else if (activeTab.value === 'belum') {
-    list = list.filter(s => !s.status || s.status === '')
+    list = list.filter(s => !s.status)
   }
 
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
-    list = list.filter(s => 
-      s.name.toLowerCase().includes(q) || 
+    list = list.filter(s =>
+      s.name.toLowerCase().includes(q) ||
       s.nis.includes(q)
     )
   }
+
   return list
 })
 
 const hadirCount = computed(() =>
-  students.value.filter(s => s.status === 'Hadir').length
+  students.value.filter(s => s.status?.toLowerCase() === 'hadir').length
 )
 
 // ================= LOGIC =================
 const loadStudents = async () => {
   try {
     const res = await axios.get(`${backendUrl}/students`)
+    const today = new Date().toDateString()
+
     students.value = res.data.map(s => ({
-      ...s, 
-      attendanceHistory: (s.attendanceHistory || []).map(h => {
-        const d = h.timestamp ? new Date(h.timestamp) : null
-        const hari = d ? d.toLocaleDateString('id-ID', { weekday: 'long' }) : '-'
-        const jam = d ? d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' }) : '-'
-        return { ...h, day: hari, time: jam }
-      })
+      ...s,
+      attendanceHistory: (s.attendanceHistory || [])
+        .filter(h => h.timestamp && new Date(h.timestamp).toDateString() === today)
+        .map(h => {
+          const d = new Date(h.timestamp)
+          return {
+            ...h,
+            day: d.toLocaleDateString('id-ID', { weekday: 'long' }),
+            time: d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })
+          }
+        })
     }))
-  } catch(err) {
+  } catch (err) {
     console.error('Load siswa gagal:', err)
   }
 }
 
 // ================= RESET KEHADIRAN =================
 const resetAllAttendance = async () => {
-  if(!confirm('Bersihkan semua data kehadiran hari ini?')) return
+  if (!confirm('Bersihkan semua data kehadiran hari ini?')) return
   try {
-    // Memanggil endpoint POST /students/reset
     await axios.post(`${backendUrl}/students/reset`)
     showToast('Database kehadiran telah direset')
     await loadStudents()
@@ -102,8 +109,9 @@ const logout = () => {
   router.replace('/login')
 }
 
+// ================= QR =================
 const generateQr = async () => {
-  const qrData = `${guruToken}-${Date.now()}`
+  const qrData = `${guruTokenPrefix}-${Date.now()}`
   guruQr.value = await QRCode.toDataURL(qrData)
 }
 
@@ -119,9 +127,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if(qrInterval) clearInterval(qrInterval)
+  if (qrInterval) clearInterval(qrInterval)
 })
 </script>
+
 
 <template>
 <div :class="['app-container', darkMode ? 'dark-theme' : 'light-theme']">
