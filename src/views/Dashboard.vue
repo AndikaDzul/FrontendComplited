@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-deployys-3jtk.vercel.app'
+const backendUrl = 'http://localhost:3000/api'
 
 // ================= STATE =================
 const user = ref({ name:'', role:'guru', mapel:'' })
@@ -83,20 +83,16 @@ const loadStudents = async () => {
   }
 }
 
+// ================= RESET KEHADIRAN =================
 const resetAllAttendance = async () => {
   if(!confirm('Bersihkan semua data kehadiran hari ini?')) return
   try {
-    for (const s of students.value) {
-      await axios.patch(`${backendUrl}/students/attendance/${s.nis}`, {
-        status: '',
-        method: 'system'
-      })
-      s.status = ''
-      s.attendanceHistory = []
-    }
+    // Memanggil endpoint POST /students/reset
+    await axios.post(`${backendUrl}/students/reset`)
     showToast('Database kehadiran telah direset')
-    loadStudents()
+    await loadStudents()
   } catch (e) {
+    console.error(e)
     showToast('Gagal mereset data', 'error')
   }
 }
@@ -221,7 +217,6 @@ onUnmounted(() => {
               </span>
             </div>
             
-            <!-- DETAIL WAKTU ABSEN -->
             <div v-if="s.status" class="mt-2 pt-2 border-top-dashed d-flex flex-column gap-1">
                <button @click="toggleHistory(s.nis)" class="btn-detail">
                  {{ showHistoryFor === s.nis ? 'Sembunyikan' : 'Lihat Detail Waktu' }}
@@ -283,7 +278,6 @@ onUnmounted(() => {
   </Transition>
 </div>
 </template>
-
 
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
