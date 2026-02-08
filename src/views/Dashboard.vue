@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-absensii-andika.vercel.app'
+const backendUrl = 'https://backend-absensii-andika-cvwp.vercel.app/'
 
 // ================= STATE =================
 const user = ref({ name:'', role:'guru', mapel:'' })
@@ -15,7 +15,7 @@ const showHistoryFor = ref(null)
 const activeTab = ref('hadir')
 
 // ===== QR GURU (FIX) =====
-const guruTokenPrefix = 'ABSENSI-GURU'
+const guruTokenPrefix = 'ABSENSI-GURU-'
 const guruQr = ref('')
 let qrInterval = null
 const showQrModal = ref(false)

@@ -307,7 +307,7 @@ import * as XLSX from 'xlsx'
 import L from 'leaflet'
 
 const router = useRouter()
-const API = 'https://backend-absensii-andika.vercel.app'
+const API = 'https://backend-absensii-andika-cvwp.vercel.app'
 const token = localStorage.getItem('token')
 const axiosAuth = axios.create({ baseURL:API, headers:{Authorization:`Bearer ${token}`} })
 

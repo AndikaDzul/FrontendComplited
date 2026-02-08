@@ -62,7 +62,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 
-const backendUrl = 'https://backend-absensii-andika.vercel.app'
+const backendUrl = 'https://backend-absensii-andika-cvwp.vercel.app'
 const router = useRouter()
 const username = ref('')
 const password = ref('')
