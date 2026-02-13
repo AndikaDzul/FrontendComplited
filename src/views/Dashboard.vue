@@ -5,7 +5,7 @@ import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-absensii-andika-bvvq.vercel.app'
+const backendUrl = 'https://backend-complited.vercel.app'
 
 // ================= STATE =================
 const user = ref({ name:'', role:'guru', mapel:'' })
@@ -14,7 +14,7 @@ const searchQuery = ref('')
 const showHistoryFor = ref(null)
 const activeTab = ref('hadir')
 
-// ===== QR GURU (FIX) =====
+// ===== QR GURU =====
 const guruTokenPrefix = 'ABSENSI-GURU-'
 const guruQr = ref('')
 let qrInterval = null
@@ -47,7 +47,7 @@ const filteredStudents = computed(() => {
   let list = students.value
 
   if (activeTab.value === 'hadir') {
-    list = list.filter(s => s.status?.toLowerCase() === 'hadir')
+    list = list.filter(s => ['hadir', 'izin', 'sakit', 'alfa'].includes(s.status?.toLowerCase()))
   } else if (activeTab.value === 'belum') {
     list = list.filter(s => !s.status)
   }
@@ -64,20 +64,28 @@ const filteredStudents = computed(() => {
 })
 
 const hadirCount = computed(() =>
-  students.value.filter(s => s.status?.toLowerCase() === 'hadir').length
+  students.value.filter(s => ['hadir', 'izin', 'sakit', 'alfa'].includes(s.status?.toLowerCase())).length
 )
 
 // ================= LOGIC =================
 const loadStudents = async () => {
   try {
     const res = await axios.get(`${backendUrl}/students`)
-    const today = new Date().toDateString()
+    const today = new Date().toDateString() 
 
-    students.value = res.data.map(s => ({
-      ...s,
-      attendanceHistory: (s.attendanceHistory || [])
-        .filter(h => h.timestamp && new Date(h.timestamp).toDateString() === today)
-        .map(h => {
+    students.value = res.data.map(s => {
+      const todayHistory = (s.attendanceHistory || []).filter(h => {
+        if (!h.timestamp) return false
+        return new Date(h.timestamp).toDateString() === today
+      })
+
+      const isPresentToday = todayHistory.length > 0
+      const currentStatus = isPresentToday ? todayHistory[todayHistory.length - 1].status : null
+
+      return {
+        ...s,
+        status: currentStatus, 
+        attendanceHistory: todayHistory.map(h => {
           const d = new Date(h.timestamp)
           return {
             ...h,
@@ -85,13 +93,32 @@ const loadStudents = async () => {
             time: d.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })
           }
         })
-    }))
+      }
+    })
   } catch (err) {
     console.error('Load siswa gagal:', err)
   }
 }
 
-// ================= RESET KEHADIRAN =================
+// ================= UPDATE STATUS MANUAL (FIXED) =================
+const updateStatusManual = async (nis, newStatus) => {
+  try {
+    await axios.post(`${backendUrl}/students/absensi-manual`, {
+      nis: nis,
+      status: newStatus,
+      teacherName: user.value.name
+    })
+    
+    showToast(`Berhasil update status ke ${newStatus}`)
+    
+    // Refresh data agar UI terupdate otomatis
+    await loadStudents() 
+  } catch (e) {
+    console.error(e)
+    showToast('Gagal update status', 'error')
+  }
+}
+
 const resetAllAttendance = async () => {
   if (!confirm('Bersihkan semua data kehadiran hari ini?')) return
   try {
@@ -109,7 +136,6 @@ const logout = () => {
   router.replace('/login')
 }
 
-// ================= QR =================
 const generateQr = async () => {
   const qrData = `${guruTokenPrefix}-${Date.now()}`
   guruQr.value = await QRCode.toDataURL(qrData)
@@ -120,6 +146,14 @@ const toggleHistory = (nis) => {
 }
 
 onMounted(async () => {
+  // Pastikan JS Bootstrap dimuat agar dropdown jalan
+  if (!document.getElementById('bootstrap-js')) {
+    const script = document.createElement('script')
+    script.id = 'bootstrap-js'
+    script.src = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+    document.head.appendChild(script)
+  }
+
   user.value.name = localStorage.getItem('teacherName') || 'Guru'
   await loadStudents()
   await generateQr()
@@ -137,7 +171,6 @@ onUnmounted(() => {
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
 
-  <!-- TOAST -->
   <Transition name="toast">
     <div v-if="toastVisible" class="custom-toast" :class="toastType">
       <i :class="toastType === 'success' ? 'bi bi-check-circle-fill' : 'bi bi-exclamation-triangle-fill'"></i>
@@ -145,7 +178,6 @@ onUnmounted(() => {
     </div>
   </Transition>
 
-  <!-- NAVBAR -->
   <nav class="teacher-nav px-3">
     <div class="nav-content-web">
       <div class="d-flex align-items-center gap-3">
@@ -166,7 +198,6 @@ onUnmounted(() => {
     </div>
   </nav>
 
-  <!-- MAIN -->
   <main class="container py-4" style="max-width: 600px;">
     <section class="dashboard-hero mb-4 shadow-sm">
       <div class="row align-items-center g-0">
@@ -176,7 +207,7 @@ onUnmounted(() => {
         </div>
         <div class="col-5 p-3">
           <div class="stat-card-inner">
-            <span class="d-block small text-white-50">HADIR</span>
+            <span class="d-block small text-white-50">TERDATA</span>
             <h2 class="fw-black m-0 text-white">{{ hadirCount }}<small class="fs-6 opacity-50">/{{ students.length }}</small></h2>
           </div>
         </div>
@@ -199,7 +230,7 @@ onUnmounted(() => {
     <section class="list-section bg-white rounded-4 shadow-sm overflow-hidden mb-4">
       <div class="p-3 border-bottom">
         <div class="tab-pill-container mb-3">
-          <button @click="activeTab = 'hadir'" :class="{ active: activeTab === 'hadir' }">Hadir</button>
+          <button @click="activeTab = 'hadir'" :class="{ active: activeTab === 'hadir' }">Terdata</button>
           <button @click="activeTab = 'belum'" :class="{ active: activeTab === 'belum' }">Belum</button>
           <button @click="activeTab = 'semua'" :class="{ active: activeTab === 'semua' }">Semua</button>
         </div>
@@ -220,25 +251,43 @@ onUnmounted(() => {
                   <small class="text-muted smaller">{{ s.nis }} • {{ s.class || 'XII RPL' }}</small>
                 </div>
               </div>
-              <span :class="['status-tag', s.status ? 'tag-hadir' : 'tag-pending']">
-                <i :class="s.status ? 'bi bi-check-circle-fill' : 'bi bi-clock'"></i>
-                {{ s.status || 'Belum' }}
-              </span>
+              
+              <div class="d-flex flex-column align-items-end gap-1">
+                <span :class="['status-tag', 
+                  s.status?.toLowerCase() === 'hadir' ? 'tag-hadir' : 
+                  s.status?.toLowerCase() === 'izin' ? 'tag-izin' :
+                  s.status?.toLowerCase() === 'sakit' ? 'tag-sakit' :
+                  s.status?.toLowerCase() === 'alfa' ? 'tag-alfa' : 'tag-pending']">
+                  <i :class="s.status ? 'bi bi-check-circle-fill' : 'bi bi-clock'"></i>
+                  {{ s.status || 'Belum Absen' }}
+                </span>
+
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-light py-0 px-2 smaller fw-bold border" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    Set Manual <i class="bi bi-chevron-down"></i>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end shadow border-0 smaller">
+                    <li><button @click="updateStatusManual(s.nis, 'Hadir')" class="dropdown-item py-2 text-success fw-bold"><i class="bi bi-check-circle me-2"></i>Hadir</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Izin')" class="dropdown-item py-2 text-warning fw-bold"><i class="bi bi-envelope me-2"></i>Izin</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Sakit')" class="dropdown-item py-2 text-primary fw-bold"><i class="bi bi-capsule me-2"></i>Sakit</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Alfa')" class="dropdown-item py-2 text-danger fw-bold"><i class="bi bi-x-circle me-2"></i>Alfa</button></li>
+                  </ul>
+                </div>
+              </div>
             </div>
             
             <div v-if="s.status" class="mt-2 pt-2 border-top-dashed d-flex flex-column gap-1">
-               <button @click="toggleHistory(s.nis)" class="btn-detail">
-                 {{ showHistoryFor === s.nis ? 'Sembunyikan' : 'Lihat Detail Waktu' }}
-               </button>
+                <button @click="toggleHistory(s.nis)" class="btn-detail">
+                  {{ showHistoryFor === s.nis ? 'Sembunyikan' : 'Lihat Detail Waktu' }}
+                </button>
 
-               <div v-if="showHistoryFor === s.nis">
-               <div v-for="(h, idx) in s.attendanceHistory" :key="idx" class="text-primary smaller">
-  <i class="bi bi-stopwatch me-1"></i>
-  {{ h.day !== '-' ? h.day : 'Belum Absen' }} • {{ h.time !== '-' ? h.time : '' }}
-  <span class="text-muted small">({{ h.method || 'system' }})</span>
-</div>
-
-               </div>
+                <div v-if="showHistoryFor === s.nis">
+                  <div v-for="(h, idx) in s.attendanceHistory" :key="idx" class="text-primary smaller">
+                    <i class="bi bi-stopwatch me-1"></i>
+                    {{ h.day }} • {{ h.time }}
+                    <span class="text-muted small">({{ h.status || 'Hadir' }})</span>
+                  </div>
+                </div>
             </div>
           </div>
         </TransitionGroup>
@@ -255,7 +304,6 @@ onUnmounted(() => {
     </button>
   </main>
 
-  <!-- QR MODAL -->
   <Transition name="sheet">
     <div v-if="showQrModal" class="sheet-overlay" @click.self="showQrModal=false">
       <div class="sheet-content">
@@ -392,6 +440,9 @@ onUnmounted(() => {
   display: flex; align-items: center; gap: 5px;
 }
 .tag-hadir { background: #dcfce7; color: #15803d; }
+.tag-izin { background: #fef9c3; color: #854d0e; }
+.tag-sakit { background: #e0f2fe; color: #0369a1; }
+.tag-alfa { background: #fee2e2; color: #b91c1c; }
 .tag-pending { background: #f1f5f9; color: #94a3b8; }
 
 .btn-detail {
@@ -443,4 +494,5 @@ onUnmounted(() => {
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 .smaller { font-size: 0.7rem; }
+.dropdown-item:active { background-color: #f1f5f9; color: inherit; }
 </style>

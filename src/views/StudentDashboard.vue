@@ -5,7 +5,7 @@ import { Html5Qrcode } from 'html5-qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-const backendUrl = 'https://backend-absensii-andika-bvvq.vercel.app'
+const backendUrl = 'https://backend-complited.vercel.app'
 
 // ================= STATE SISWA =================
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null })
@@ -67,12 +67,15 @@ const checkLocation = () => {
   })
 }
 
-// ================= LOGIKA DISPLAY =================
+// ================= LOGIKA DISPLAY (RESET STATUS SETELAH 2 JAM) =================
 const canAbsen = computed(() => {
+  // Jika belum pernah absen atau status sudah reset ke 'Belum Absen'
   if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
+  
   const lastTime = new Date(student.value.lastAttendance).getTime()
   const now = new Date().getTime()
-  return (now - lastTime) > (9 * 60 * 60 * 1000)
+  // 2 jam dalam milidetik = 2 * 60 * 60 * 1000
+  return (now - lastTime) > (2 * 60 * 60 * 1000)
 })
 
 const displayStatus = computed(() => {
@@ -96,7 +99,7 @@ const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] 
 
 // ================= SCANNER =================
 const startScan = async () => {
-  if (!canAbsen.value) { showToast('Sudah absen.', 'error'); return }
+  if (!canAbsen.value) { showToast('Anda baru saja absen. Tunggu 2 jam untuk absen lagi.', 'error'); return }
   showToast('Cek Lokasi...', 'info')
   try {
     await loadGpsConfig(); await checkLocation()
@@ -126,7 +129,6 @@ const loadGpsConfig = async () => {
 const submitAttendance = async(token)=>{
   try{
     const now = new Date()
-    // 🔹 Perbaikan: gunakan POST, bukan PATCH
     await axios.post(`${backendUrl}/students/attendance/${student.value.nis}`, { status: 'Hadir', qrToken: token, timestamp: now.toISOString() })
     student.value.status = 'Hadir'; student.value.lastAttendance = now.toISOString()
     playSuccessSound(); showToast('Berhasil!'); setTimeout(() => { stopScan(); loadAttendance() }, 800)
@@ -136,11 +138,20 @@ const submitAttendance = async(token)=>{
 const loadAttendance = async ()=>{
   try{
     const res = await axios.get(`${backendUrl}/students`)
-    studentsHadir.value = res.data.filter(s => s.status === 'Hadir')
     const me = res.data.find(s => s.nis === student.value.nis)
-    if(me?.status==='Hadir') {
-      student.value.status = 'Hadir'
-      student.value.lastAttendance = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
+    
+    if(me?.status === 'Hadir') {
+      const lastAttendanceTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
+      const diff = new Date().getTime() - new Date(lastAttendanceTime).getTime()
+      
+      // LOGIKA RESET: Jika sudah lebih dari 2 jam, ubah status UI jadi "Belum Absen"
+      if (diff > (2 * 60 * 60 * 1000)) {
+        student.value.status = 'Belum Absen'
+        student.value.lastAttendance = lastAttendanceTime // Tetap simpan waktu terakhir untuk referensi canAbsen
+      } else {
+        student.value.status = 'Hadir'
+        student.value.lastAttendance = lastAttendanceTime
+      }
     }
   } catch(err){ console.log('Load attendance error', err) }
 }
@@ -167,7 +178,7 @@ onMounted(() => {
   }
 
   loadGpsConfig(); loadJadwalHariIni(); loadAttendance()
-  const interval = setInterval(loadAttendance, 10000)
+  const interval = setInterval(loadAttendance, 30000) // Cek setiap 30 detik
   onUnmounted(() => clearInterval(interval))
 })
 
@@ -210,7 +221,7 @@ onUnmounted(()=> stopScan())
     <section class="status-card shadow-sm mb-4" :class="student.status === 'Hadir' ? 'status-active' : 'status-pending'">
       <div class="card-body p-4 text-white">
         <div class="d-flex justify-content-between opacity-75 small mb-2">
-          <span>KEHADIRAN HARI INI</span>
+          <span>STATUS KEHADIRAN</span>
           <i class="bi bi-shield-check"></i>
         </div>
         <h2 class="display-6 fw-bold mb-3">{{ displayStatus }}</h2>
@@ -225,37 +236,31 @@ onUnmounted(()=> stopScan())
       <div class="col-6">
         <button class="action-card btn w-100 py-4 shadow-sm" @click="startScan" :disabled="!canAbsen" :class="!canAbsen ? 'disabled-card' : 'scan-active'">
           <i class="bi bi-qr-code-scan d-block mb-2 fs-2"></i>
-          <span class="fw-bold small">ABSEN</span>
+          <span class="fw-bold small">ABSENSI</span>
         </button>
       </div>
       <div class="col-6">
         <button class="action-card btn btn-white w-100 py-4 shadow-sm" @click="scheduleVisible = true">
-          <i class="bi bi-calendar-week d-block mb-2 fs-2 text-primary"></i>
-          <span class="fw-bold small">JADWAL</span>
+          <i class="bi bi-info-circle d-block mb-2 fs-2 text-primary"></i>
+          <span class="fw-bold small">INFO & JADWAL</span>
         </button>
       </div>
     </div>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h6 class="fw-bold m-0 text-dark"><i class="bi bi-people-fill me-2 text-primary"></i>Sudah Absen</h6>
-      <span class="badge bg-primary-subtle text-primary rounded-pill">{{ studentsHadir.length }} Siswa</span>
-    </div>
-
-    <div class="attendance-list shadow-sm bg-white rounded-4 overflow-hidden mb-5">
-      <div class="scroll-container">
-        <div v-for="s in studentsHadir" :key="s.nis" class="student-row px-3 py-3 d-flex align-items-center justify-content-between">
-          <div class="d-flex align-items-center">
-            <div class="mini-avatar me-3">{{ s.name ? s.name[0].toUpperCase() : '?' }}</div>
-            <div>
-              <p class="mb-0 fw-bold small text-dark">{{ s.name }}</p>
-              <small class="text-muted smaller">{{ s.nis }}</small>
-            </div>
-          </div>
-          <span class="status-tag"><i class="bi bi-check-circle-fill me-1"></i>Hadir</span>
+    <div class="guide-section bg-white p-4 rounded-4 shadow-sm border">
+      <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-journal-text me-2 text-primary"></i>Panduan Absensi</h6>
+      <div class="small text-muted">
+        <div class="d-flex mb-3">
+          <div class="guide-num me-3">1</div>
+          <p class="m-0">Pastikan <strong>GPS/Lokasi</strong> ponsel dalam keadaan aktif dan berada di area sekolah.</p>
         </div>
-        <div v-if="studentsHadir.length === 0" class="text-center py-5">
-          <i class="bi bi-inbox text-muted fs-1 d-block mb-2"></i>
-          <p class="text-muted small m-0">Belum ada data masuk</p>
+        <div class="d-flex mb-3">
+          <div class="guide-num me-3">2</div>
+          <p class="m-0">Klik tombol <strong>Absensi</strong> dan arahkan kamera ke QR Code yang diberikan oleh Guru.</p>
+        </div>
+        <div class="d-flex">
+          <div class="guide-num me-3">3</div>
+          <p class="m-0">Status <strong>"Hadir"</strong> akan bertahan tergantung jam mapel sistem siap untuk sesi berikutnya.</p>
         </div>
       </div>
     </div>
@@ -330,7 +335,6 @@ onUnmounted(()=> stopScan())
   max-width: 500px;
   margin: 0 auto;
   position: relative;
-  overflow-x: hidden;
 }
 
 .user-avatar-glow {
@@ -352,19 +356,14 @@ onUnmounted(()=> stopScan())
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.7); } 70% { box-shadow: 0 0 0 10px rgba(255,255,255,0); } 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
 
 .action-card { background: white; border-radius: 24px; border: 1px solid #f1f5f9; transition: 0.2s; }
-.action-card:active { transform: scale(0.95); }
 .scan-active { color: #6366f1; border: 1px solid #e0e7ff; }
-.disabled-card { background: #f1f5f9 !important; color: #94a3b8 !important; border: none; }
+.disabled-card { background: #f1f5f9 !important; color: #94a3b8 !important; border: none; cursor: not-allowed; }
 
-.attendance-list { height: 350px; border-radius: 24px; border: 1px solid #f1f5f9; }
-.scroll-container { height: 100%; overflow-y: auto; }
-.student-row { border-bottom: 1px solid #f8fafc; }
-.mini-avatar { width: 38px; height: 38px; background: #f0f3ff; color: #6366f1; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; }
-.status-tag { font-size: 0.7rem; font-weight: 700; color: #059669; background: #ecfdf5; padding: 5px 12px; border-radius: 10px; }
+.guide-num { width: 24px; height: 24px; background: #eef2ff; color: #6366f1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.75rem; flex-shrink: 0; }
 
 .scanner-fullscreen { position:fixed; inset:0; background:#000; z-index:9999; display:flex; flex-direction:column; }
 .scanner-nav { z-index: 10; background: rgba(0,0,0,0.5); }
-.scanner-body { flex:1; position:relative; background: #000; overflow: hidden; }
+.scanner-body { flex:1; position:relative; overflow: hidden; }
 
 #qr-reader { width: 100% !important; height: 100% !important; border: none !important; }
 #qr-reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
