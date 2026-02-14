@@ -67,8 +67,16 @@ const checkLocation = () => {
   })
 }
 
-// ================= LOGIKA DISPLAY (RESET STATUS SETELAH 2 JAM) =================
+// ================= LOGIKA DISPLAY (RESET STATUS SETELAH 2 JAM & HARI LIBUR) =================
+const isWeekend = computed(() => {
+  const day = new Date().getDay()
+  return day === 0 || day === 6 // 0 = Minggu, 6 = Sabtu
+})
+
 const canAbsen = computed(() => {
+  // Cek Hari Libur
+  if (isWeekend.value) return false
+  
   // Jika belum pernah absen atau status sudah reset ke 'Belum Absen'
   if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
   
@@ -79,6 +87,7 @@ const canAbsen = computed(() => {
 })
 
 const displayStatus = computed(() => {
+  if (isWeekend.value) return 'Libur Akhir Pekan'
   if(student.value.status === 'Hadir' && student.value.lastAttendance){
     return `Hadir - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
   }
@@ -99,7 +108,9 @@ const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] 
 
 // ================= SCANNER =================
 const startScan = async () => {
+  if (isWeekend.value) { showToast('Hari ini libur. Tidak ada absensi.', 'error'); return }
   if (!canAbsen.value) { showToast('Anda baru saja absen. Tunggu 2 jam untuk absen lagi.', 'error'); return }
+  
   showToast('Cek Lokasi...', 'info')
   try {
     await loadGpsConfig(); await checkLocation()
@@ -147,7 +158,7 @@ const loadAttendance = async ()=>{
       // LOGIKA RESET: Jika sudah lebih dari 2 jam, ubah status UI jadi "Belum Absen"
       if (diff > (2 * 60 * 60 * 1000)) {
         student.value.status = 'Belum Absen'
-        student.value.lastAttendance = lastAttendanceTime // Tetap simpan waktu terakhir untuk referensi canAbsen
+        student.value.lastAttendance = lastAttendanceTime 
       } else {
         student.value.status = 'Hadir'
         student.value.lastAttendance = lastAttendanceTime
@@ -218,15 +229,16 @@ onUnmounted(()=> stopScan())
   </nav>
 
   <main class="container px-4 mt-4">
-    <section class="status-card shadow-sm mb-4" :class="student.status === 'Hadir' ? 'status-active' : 'status-pending'">
+    <section class="status-card shadow-sm mb-4" :class="student.status === 'Hadir' ? 'status-active' : (isWeekend ? 'status-weekend' : 'status-pending')">
       <div class="card-body p-4 text-white">
         <div class="d-flex justify-content-between opacity-75 small mb-2">
           <span>STATUS KEHADIRAN</span>
-          <i class="bi bi-shield-check"></i>
+          <i class="bi bi-calendar-x" v-if="isWeekend"></i>
+          <i class="bi bi-shield-check" v-else></i>
         </div>
         <h2 class="display-6 fw-bold mb-3">{{ displayStatus }}</h2>
         <div class="d-flex align-items-center">
-          <div class="pulse-dot me-2"></div>
+          <div class="pulse-dot me-2" v-if="!isWeekend"></div>
           <span class="small opacity-90">{{ hariIni }}, {{ new Date().toLocaleDateString('id-ID') }}</span>
         </div>
       </div>
@@ -236,7 +248,7 @@ onUnmounted(()=> stopScan())
       <div class="col-6">
         <button class="action-card btn w-100 py-4 shadow-sm" @click="startScan" :disabled="!canAbsen" :class="!canAbsen ? 'disabled-card' : 'scan-active'">
           <i class="bi bi-qr-code-scan d-block mb-2 fs-2"></i>
-          <span class="fw-bold small">ABSENSI</span>
+          <span class="fw-bold small">{{ isWeekend ? 'HARI LIBUR' : 'ABSENSI' }}</span>
         </button>
       </div>
       <div class="col-6">
@@ -260,7 +272,7 @@ onUnmounted(()=> stopScan())
         </div>
         <div class="d-flex">
           <div class="guide-num me-3">3</div>
-          <p class="m-0">Status <strong>"Hadir"</strong> akan bertahan tergantung jam mapel sistem siap untuk sesi berikutnya.</p>
+          <p class="m-0">Absensi hanya tersedia di hari kerja (Senin - Jumat).</p>
         </div>
       </div>
     </div>
@@ -347,6 +359,7 @@ onUnmounted(()=> stopScan())
 
 .status-card { border-radius: 28px; border: none; overflow: hidden; transition: 0.4s; }
 .status-pending { background: linear-gradient(135deg, #1e293b, #334155); }
+.status-weekend { background: linear-gradient(135deg, #ef4444, #b91c1c); }
 .status-active { 
   background: linear-gradient(135deg, #10b981, #059669); 
   box-shadow: 0 12px 24px rgba(16, 185, 129, 0.25) !important;

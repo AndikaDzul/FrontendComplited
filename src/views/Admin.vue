@@ -247,6 +247,13 @@
             </div>
             <div class="export-controls-formal">
               <div class="filter-group-formal">
+                <label>Filter Jurusan</label>
+                <select v-model="selectedExportJurusan" class="formal-select">
+                  <option value="">Semua Jurusan</option>
+                  <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+                </select>
+              </div>
+              <div class="filter-group-formal">
                 <label>Filter Periode Hari</label>
                 <select v-model="selectedExportDay" class="formal-select">
                   <option value="">Semua Hari Absen Siswa</option>
@@ -273,7 +280,7 @@
                 </tr>
               </thead>
               <tbody>
-                <template v-for="s in siswa" :key="s.nis">
+                <template v-for="s in filteredSiswaReport" :key="s.nis">
                   <tr v-for="(h, idx) in formatAttendanceForTable(s)" :key="idx">
                     <td class="text-secondary">{{ s.nis }}</td>
                     <td class="text-bold">{{ s.name }}</td>
@@ -310,6 +317,7 @@ const axiosAuth = axios.create({ baseURL: API, headers: { Authorization: `Bearer
 const sidebarOpen = ref(false)
 const activeMenu = ref('dashboard')
 const selectedExportDay = ref('')
+const selectedExportJurusan = ref('') // Added filter jurusan
 const admin = ref({ name: localStorage.getItem('adminName') || 'Admin' })
 
 const jurusanList = ['RPL', 'AKL', 'PS', 'TJKT', 'MPLB']
@@ -326,10 +334,15 @@ const formJadwal = ref({ mapel: '', guru: '', hari: '', jam: '', kelas: '' })
 
 let map = null, marker = null, circle = null
 
-// --- LOGIC TAMBAHAN UNTUK DASHBOARD ---
+// --- LOGIC TAMBAHAN UNTUK DASHBOARD & REPORT ---
 const totalSiswa = computed(() => siswa.value.length)
 const totalSiswaHadir = computed(() => {
   return siswa.value.filter(s => s.status === 'Hadir').length
+})
+
+const filteredSiswaReport = computed(() => {
+  if (!selectedExportJurusan.value) return siswa.value
+  return siswa.value.filter(s => s.class === selectedExportJurusan.value)
 })
 // --------------------------------------
 
@@ -455,9 +468,11 @@ const exportToExcel = () => {
   const now = new Date()
   const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
   const dayName = selectedExportDay.value || hariList[now.getDay()]
+  const targetJurusan = selectedExportJurusan.value || 'Semua Jurusan'
   
   const headerInfo = [
     ["LAPORAN KEHADIRAN SISWA ZIESEN"],
+    ["Jurusan", ": " + targetJurusan],
     ["Hari", ": " + dayName],
     ["Tanggal", ": " + dateStr],
     ["Periode", ": " + now.toLocaleString('id-ID', { month: 'long', year: 'numeric' })],
@@ -465,7 +480,12 @@ const exportToExcel = () => {
     ["NIS", "NAMA SISWA", "KELAS", "STATUS KEHADIRAN"]
   ]
 
-  const dataSiswa = siswa.value.map(s => {
+  // Use filtered data based on selection
+  const sourceData = selectedExportJurusan.value 
+    ? siswa.value.filter(s => s.class === selectedExportJurusan.value)
+    : siswa.value
+
+  const dataSiswa = sourceData.map(s => {
     const history = formatAttendanceForTable(s)
     let finalStatus = 'Alfa'
     if (history.length > 0) {
@@ -482,7 +502,7 @@ const exportToExcel = () => {
   const wb = XLSX.utils.book_new()
   ws['!cols'] = [{ wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 20 }]
   XLSX.utils.book_append_sheet(wb, ws, "Laporan Kehadiran"); 
-  XLSX.writeFile(wb, `Laporan_Absensi_${dayName}_${now.getTime()}.xlsx`)
+  XLSX.writeFile(wb, `Laporan_Absensi_${targetJurusan}_${dayName}.xlsx`)
 }
 
 const logout = () => { localStorage.clear(); router.push('/login') }
@@ -531,11 +551,11 @@ onMounted(() => {
 .report-view { background: #ffffff; border: 1px solid #cbd5e1; }
 .formal-title { font-weight: 800; color: #0f172a; margin-bottom: 4px; font-size: 1.5rem; }
 .formal-subtitle { color: #64748b; font-size: 0.95rem; }
-.export-controls-formal { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-top: 25px; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9; }
+.export-controls-formal { display: flex; align-items: flex-end; justify-content: flex-start; gap: 20px; margin-top: 25px; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9; flex-wrap: wrap; }
 .filter-group-formal label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 8px; }
-.formal-select { padding: 10px 15px; border: 1.5px solid #e2e8f0; border-radius: 6px; min-width: 220px; outline: none; transition: 0.2s; background: #fcfcfc; }
+.formal-select { padding: 10px 15px; border: 1.5px solid #e2e8f0; border-radius: 6px; min-width: 200px; outline: none; transition: 0.2s; background: #fcfcfc; }
 .formal-select:focus { border-color: #94a3b8; }
-.btn-formal-export { background: #0f172a; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.3s; }
+.btn-formal-export { background: #0f172a; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.3s; margin-top: 5px; }
 .btn-formal-export:hover { background: #334155; }
 .table-formal { width: 100%; border-collapse: collapse; margin-top: 10px; }
 .table-formal th { padding: 18px 15px; text-align: left; background: #f8fafc; color: #334155; font-size: 0.85rem; font-weight: 700; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; }
