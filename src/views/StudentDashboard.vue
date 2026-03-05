@@ -8,15 +8,16 @@ const router = useRouter()
 const backendUrl = 'https://backend-complited.vercel.app'
 
 // ================= STATE SISWA =================
+// Dibuat reaktif untuk menampung jurusan apa pun (RPL, AKL, TJKT, dsb)
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null })
-const studentsHadir = ref([]) 
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
 let html5QrCode = null  
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
-const jadwalHariIni = ref([])
 
+// State Jadwal & Config
+const jadwalHariIni = ref([])
 const schoolConfig = ref({ lat: null, lng: null, radius: 50 })
 
 // ================= AUDIO & TOAST =================
@@ -67,22 +68,18 @@ const checkLocation = () => {
   })
 }
 
-// ================= LOGIKA DISPLAY (RESET STATUS SETELAH 2 JAM & HARI LIBUR) =================
+// ================= LOGIKA DISPLAY & FILTER =================
 const isWeekend = computed(() => {
   const day = new Date().getDay()
-  return day === 0 || day === 6 // 0 = Minggu, 6 = Sabtu
+  return day === 0 || day === 6 
 })
 
 const canAbsen = computed(() => {
-  // Cek Hari Libur
   if (isWeekend.value) return false
-  
-  // Jika belum pernah absen atau status sudah reset ke 'Belum Absen'
   if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
   
   const lastTime = new Date(student.value.lastAttendance).getTime()
   const now = new Date().getTime()
-  // 2 jam dalam milidetik = 2 * 60 * 60 * 1000
   return (now - lastTime) > (2 * 60 * 60 * 1000)
 })
 
@@ -94,34 +91,75 @@ const displayStatus = computed(() => {
   return student.value.status
 })
 
-const hariIni = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
+const hariIniText = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
 
-// ================= JADWAL =================
-const jadwalAll = {
-  "Senin":[{ jam:"07:10", mapel:"Konsentrasi RPL", guru:"Yaqub Hadi Permana, S.T." }, { jam:"09:25", mapel:"Pancasila", guru:"Ati Melani" }, { jam:"13:50", mapel:"Matematika", guru:"Hinda Gumiarti, M.Pd" }],
-  "Selasa":[{ jam:"07:10", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." }, { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Fajar M. Sukmawijaya, M.Kom" }],
-  "Rabu":[{ jam:"07:10", mapel:"Bahasa Jepang", guru:"Pradita Surya Arianti" }, { jam:"08:30", mapel:"Konsentrasi XII RPL-2", guru:"Yaqub Hadi Permana, S.T." }],
-  "Kamis":[{ jam:"07:10", mapel:"PAB", guru:"Dikdik Juanda, S.Pd.I." }, { jam:"12:30", mapel:"Konsentrasi XII RPL-2", guru:"Yayat Ruhiyat, S.ST" }],
-  "Jumat":[{ jam:"07:10", mapel:"B. Indonesia", guru:"Rubaetul Adawiyah, S.Pd" }, { jam:"10:05", mapel:"Konsentrasi XII RPL-2", guru:"Sarah Siti Sumaerah, S.T." }]
+// ================= LOAD JADWAL (SANGAT DINAMIS UNTUK SEMUA JURUSAN) =================
+const fetchJadwalFromAdmin = async () => {
+  try {
+    const res = await axios.get(`${backendUrl}/schedules`)
+    if (res.data && student.value.class) {
+      // Normalisasi kelas siswa (Contoh: "XII RPL 1" -> "XII RPL 1")
+      const studentClassNormal = student.value.class.toUpperCase().trim()
+      
+      const filtered = res.data.filter(j => {
+        // 1. Filter Hari
+        const matchHari = j.hari.toLowerCase() === hariIniText.value.toLowerCase()
+        
+        // 2. Filter Kelas/Jurusan secara Universal
+        const scheduleClassNormal = j.kelas.toUpperCase().trim()
+        
+        // Cek apakah kelas di jadwal ada di dalam nama kelas siswa atau sebaliknya
+        // Ini memastikan AKL, TJKT, dan RPL semuanya bisa masuk
+        const matchKelas = studentClassNormal.includes(scheduleClassNormal) || 
+                           scheduleClassNormal.includes(studentClassNormal)
+        
+        return matchHari && matchKelas
+      })
+      
+      jadwalHariIni.value = filtered.sort((a, b) => a.jam.localeCompare(b.jam))
+    }
+  } catch (e) {
+    console.error('Gagal mengambil jadwal admin', e)
+  }
 }
-const loadJadwalHariIni = ()=> { jadwalHariIni.value = jadwalAll[hariIni.value] || [] }
 
 // ================= SCANNER =================
 const startScan = async () => {
-  if (isWeekend.value) { showToast('Hari ini libur. Tidak ada absensi.', 'error'); return }
-  if (!canAbsen.value) { showToast('Anda baru saja absen. Tunggu 2 jam untuk absen lagi.', 'error'); return }
+  if (isWeekend.value) { showToast('Hari ini libur.', 'error'); return }
+  if (!canAbsen.value) { showToast('Tunggu 2 jam untuk absen lagi.', 'error'); return }
   
   showToast('Cek Lokasi...', 'info')
   try {
-    await loadGpsConfig(); await checkLocation()
-    qrVisible.value = true; scanning = false; await nextTick()
-    if (html5QrCode) { try { await html5QrCode.stop() } catch (e) {} html5QrCode = null }
+    await loadGpsConfig(); 
+    await checkLocation()
+    
+    qrVisible.value = true; 
+    scanning = false; 
+    await nextTick()
+    
+    if (html5QrCode) { 
+        try { await html5QrCode.stop() } catch (e) {} 
+        html5QrCode = null 
+    }
+    
     html5QrCode = new Html5Qrcode("qr-reader")
-    await html5QrCode.start({ facingMode: "environment" }, { fps: 15, qrbox: 250 }, async (text) => {
-      if (scanning) return
-      if (text.startsWith(guruTokenPrefix)) { scanning = true; await submitAttendance(text) }
-    })
-  } catch (err) { showToast(err, 'error'); qrVisible.value = false }
+    await html5QrCode.start(
+      { facingMode: "environment" }, 
+      { fps: 15, qrbox: 250 }, 
+      async (text) => {
+        if (scanning) return
+        if (text.startsWith(guruTokenPrefix)) { 
+          scanning = true; 
+          await submitAttendance(text) 
+        } else {
+          showToast('QR Code tidak valid!', 'error')
+        }
+      }
+    )
+  } catch (err) { 
+    showToast(err, 'error'); 
+    qrVisible.value = false 
+  }
 }
 
 const stopScan = async () => {
@@ -140,10 +178,29 @@ const loadGpsConfig = async () => {
 const submitAttendance = async(token)=>{
   try{
     const now = new Date()
-    await axios.post(`${backendUrl}/students/attendance/${student.value.nis}`, { status: 'Hadir', qrToken: token, timestamp: now.toISOString() })
-    student.value.status = 'Hadir'; student.value.lastAttendance = now.toISOString()
-    playSuccessSound(); showToast('Berhasil!'); setTimeout(() => { stopScan(); loadAttendance() }, 800)
-  } catch(err){ showToast('Gagal kirim','error'); scanning = false }
+    // Deteksi Mapel saat ini dari jadwal
+    const currentMapel = jadwalHariIni.value.length > 0 ? jadwalHariIni.value[0].mapel : 'Pelajaran Umum'
+    
+    await axios.post(`${backendUrl}/students/attendance/${student.value.nis}`, { 
+      status: 'Hadir', 
+      qrToken: token, 
+      mapel: currentMapel,
+      timestamp: now.toISOString() 
+    })
+    
+    student.value.status = 'Hadir'; 
+    student.value.lastAttendance = now.toISOString()
+    playSuccessSound(); 
+    showToast('Absensi Berhasil!'); 
+    
+    setTimeout(() => { 
+      stopScan(); 
+      loadAttendance() 
+    }, 800)
+  } catch(err){ 
+    showToast('Gagal mengirim data','error'); 
+    scanning = false 
+  }
 }
 
 const loadAttendance = async ()=>{
@@ -151,17 +208,23 @@ const loadAttendance = async ()=>{
     const res = await axios.get(`${backendUrl}/students`)
     const me = res.data.find(s => s.nis === student.value.nis)
     
-    if(me?.status === 'Hadir') {
-      const lastAttendanceTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
-      const diff = new Date().getTime() - new Date(lastAttendanceTime).getTime()
+    if(me) {
+      // Update data profil terbaru dari database (antisipasi perubahan jurusan oleh admin)
+      student.value.name = me.name
+      student.value.class = me.class
+      student.value.status = me.status || 'Belum Absen'
       
-      // LOGIKA RESET: Jika sudah lebih dari 2 jam, ubah status UI jadi "Belum Absen"
-      if (diff > (2 * 60 * 60 * 1000)) {
-        student.value.status = 'Belum Absen'
-        student.value.lastAttendance = lastAttendanceTime 
-      } else {
-        student.value.status = 'Hadir'
-        student.value.lastAttendance = lastAttendanceTime
+      if(me.status === 'Hadir' || me.status === 'Sakit' || me.status === 'Izin') {
+        const lastAttendanceTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
+        const diff = new Date().getTime() - new Date(lastAttendanceTime).getTime()
+        
+        // Reset status lokal jika sudah lewat 2 jam (untuk absen mapel berikutnya)
+        if (me.status === 'Hadir' && diff > (2 * 60 * 60 * 1000)) {
+          student.value.status = 'Belum Absen'
+          student.value.lastAttendance = lastAttendanceTime 
+        } else {
+          student.value.lastAttendance = lastAttendanceTime
+        }
       }
     }
   } catch(err){ console.log('Load attendance error', err) }
@@ -170,26 +233,25 @@ const loadAttendance = async ()=>{
 const logout = () => { localStorage.clear(); router.push('/login') }
 
 // ================= ON MOUNTED =================
-onMounted(() => {
+onMounted(async () => {
   const savedNis = localStorage.getItem('studentNis')
-  const savedName = localStorage.getItem('studentName')
-  const savedClass = localStorage.getItem('studentClass')
 
   if (!savedNis || savedNis === 'undefined') {
     router.replace('/login')
     return
   }
 
-  student.value = { 
-    name: savedName && savedName !== 'undefined' ? savedName : 'Akun Siswa', 
-    nis: savedNis, 
-    class: savedClass && savedClass !== 'undefined' ? savedClass : '-', 
-    status: 'Belum Absen', 
-    lastAttendance: null
-  }
+  // Ambil data awal dari localStorage
+  student.value.nis = savedNis
+  student.value.name = localStorage.getItem('studentName') || 'Siswa'
+  student.value.class = localStorage.getItem('studentClass') || '-'
 
-  loadGpsConfig(); loadJadwalHariIni(); loadAttendance()
-  const interval = setInterval(loadAttendance, 30000) // Cek setiap 30 detik
+  // Ambil data TERBARU dari database admin agar semua jurusan sinkron
+  await loadAttendance()
+  await loadGpsConfig()
+  await fetchJadwalFromAdmin() 
+
+  const interval = setInterval(loadAttendance, 30000) 
   onUnmounted(() => clearInterval(interval))
 })
 
@@ -217,7 +279,7 @@ onUnmounted(()=> stopScan())
         </div>
         <div>
           <h6 class="mb-0 fw-bold text-dark text-truncate" style="max-width: 150px;">
-            {{ student.name || 'Loading...' }}
+            {{ student.name }}
           </h6>
           <small class="text-muted">{{ student.class }}</small>
         </div>
@@ -233,13 +295,12 @@ onUnmounted(()=> stopScan())
       <div class="card-body p-4 text-white">
         <div class="d-flex justify-content-between opacity-75 small mb-2">
           <span>STATUS KEHADIRAN</span>
-          <i class="bi bi-calendar-x" v-if="isWeekend"></i>
-          <i class="bi bi-shield-check" v-else></i>
+          <i class="bi bi-shield-check"></i>
         </div>
         <h2 class="display-6 fw-bold mb-3">{{ displayStatus }}</h2>
         <div class="d-flex align-items-center">
           <div class="pulse-dot me-2" v-if="!isWeekend"></div>
-          <span class="small opacity-90">{{ hariIni }}, {{ new Date().toLocaleDateString('id-ID') }}</span>
+          <span class="small opacity-90">{{ hariIniText }}, {{ new Date().toLocaleDateString('id-ID') }}</span>
         </div>
       </div>
     </section>
@@ -260,19 +321,19 @@ onUnmounted(()=> stopScan())
     </div>
 
     <div class="guide-section bg-white p-4 rounded-4 shadow-sm border">
-      <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-journal-text me-2 text-primary"></i>Panduan Absensi</h6>
+      <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-journal-text me-2 text-primary"></i>Informasi Akun</h6>
       <div class="small text-muted">
         <div class="d-flex mb-3">
           <div class="guide-num me-3">1</div>
-          <p class="m-0">Pastikan <strong>GPS/Lokasi</strong> ponsel dalam keadaan aktif dan berada di area sekolah.</p>
+          <p class="m-0">Radius sekolah: <strong>{{ schoolConfig.radius }} meter</strong>.</p>
         </div>
         <div class="d-flex mb-3">
           <div class="guide-num me-3">2</div>
-          <p class="m-0">Klik tombol <strong>Absensi</strong> dan arahkan kamera ke QR Code yang diberikan oleh Guru.</p>
+          <p class="m-0">Kelas & Jurusan: <strong>{{ student.class }}</strong></p>
         </div>
         <div class="d-flex">
           <div class="guide-num me-3">3</div>
-          <p class="m-0">Absensi hanya tersedia di hari kerja (Senin - Jumat).</p>
+          <p class="m-0">Jadwal otomatis menyesuaikan jurusan Anda.</p>
         </div>
       </div>
     </div>
@@ -282,9 +343,9 @@ onUnmounted(()=> stopScan())
     <div v-if="qrVisible" class="scanner-fullscreen">
       <div class="scanner-nav p-3 d-flex justify-content-between align-items-center text-white">
         <button @click="stopScan" class="btn btn-outline-light btn-sm rounded-pill px-3">
-          <i class="bi bi-x-lg me-1"></i> Tutup
+          <i class="bi bi-x-lg me-1"></i> Batal
         </button>
-        <span class="small fw-bold letter-spacing-1">SCAN QR GURU</span>
+        <span class="small fw-bold">ARAHKAN KE QR GURU</span>
         <div style="width: 70px"></div>
       </div>
       <div class="scanner-body">
@@ -295,12 +356,7 @@ onUnmounted(()=> stopScan())
             <div class="corner b-l"></div><div class="corner b-r"></div>
             <div class="scan-line"></div>
           </div>
-          <p class="text-white small mt-5 opacity-75">Gunakan kamera belakang</p>
         </div>
-      </div>
-      <div class="scanner-footer p-4 text-center">
-        <div class="spinner-grow spinner-grow-sm text-primary me-2"></div>
-        <span class="text-white small">Mencari Kode QR...</span>
       </div>
     </div>
   </transition>
@@ -310,8 +366,8 @@ onUnmounted(()=> stopScan())
       <div class="sheet-content">
         <div class="sheet-handle"></div>
         <div class="d-flex justify-content-between align-items-center mb-4">
-           <h5 class="fw-bold m-0 text-dark">Jadwal {{ hariIni }}</h5>
-           <button @click="scheduleVisible=false" class="btn-close"></button>
+            <h5 class="fw-bold m-0 text-dark">Jadwal Pelajaran</h5>
+            <span class="badge bg-primary-subtle text-primary">{{ student.class }}</span>
         </div>
         <div class="schedule-items">
           <div v-for="(j,i) in jadwalHariIni" :key="i" class="schedule-card-item p-3 mb-3">
@@ -327,10 +383,12 @@ onUnmounted(()=> stopScan())
               </div>
             </div>
           </div>
-          <div v-if="jadwalHariIni.length === 0" class="text-center py-4">
-             <p class="text-muted">Tidak ada jadwal hari ini.</p>
+          <div v-if="jadwalHariIni.length === 0" class="text-center py-5">
+              <i class="bi bi-calendar2-x fs-1 text-light mb-3 d-block"></i>
+              <p class="text-muted">Tidak ada jadwal untuk {{ student.class }} hari ini.</p>
           </div>
         </div>
+        <button @click="scheduleVisible=false" class="btn btn-light w-100 rounded-pill mt-2">Tutup</button>
       </div>
     </div>
   </transition>
@@ -340,47 +398,22 @@ onUnmounted(()=> stopScan())
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 
-.app-container {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  background-color: #f8fafc;
-  min-height: 100vh;
-  max-width: 500px;
-  margin: 0 auto;
-  position: relative;
-}
-
-.user-avatar-glow {
-  width: 42px; height: 42px;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: white; border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 800; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-}
-
+.app-container { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; min-height: 100vh; max-width: 500px; margin: 0 auto; position: relative; }
+.user-avatar-glow { width: 42px; height: 42px; background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
 .status-card { border-radius: 28px; border: none; overflow: hidden; transition: 0.4s; }
 .status-pending { background: linear-gradient(135deg, #1e293b, #334155); }
 .status-weekend { background: linear-gradient(135deg, #ef4444, #b91c1c); }
-.status-active { 
-  background: linear-gradient(135deg, #10b981, #059669); 
-  box-shadow: 0 12px 24px rgba(16, 185, 129, 0.25) !important;
-}
-
+.status-active { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 12px 24px rgba(16, 185, 129, 0.25) !important; }
 .pulse-dot { width: 8px; height: 8px; background: #fff; border-radius: 50%; animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.7); } 70% { box-shadow: 0 0 0 10px rgba(255,255,255,0); } 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
-
 .action-card { background: white; border-radius: 24px; border: 1px solid #f1f5f9; transition: 0.2s; }
 .scan-active { color: #6366f1; border: 1px solid #e0e7ff; }
 .disabled-card { background: #f1f5f9 !important; color: #94a3b8 !important; border: none; cursor: not-allowed; }
-
 .guide-num { width: 24px; height: 24px; background: #eef2ff; color: #6366f1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.75rem; flex-shrink: 0; }
-
 .scanner-fullscreen { position:fixed; inset:0; background:#000; z-index:9999; display:flex; flex-direction:column; }
 .scanner-nav { z-index: 10; background: rgba(0,0,0,0.5); }
 .scanner-body { flex:1; position:relative; overflow: hidden; }
-
 #qr-reader { width: 100% !important; height: 100% !important; border: none !important; }
-#qr-reader video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
-
 .scan-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 5; }
 .scan-frame { width: 260px; height: 260px; position: relative; }
 .corner { position: absolute; width: 30px; height: 30px; border: 4px solid #6366f1; }
@@ -390,16 +423,15 @@ onUnmounted(()=> stopScan())
 .b-r { bottom: 0; right: 0; border-left: none; border-top: none; border-radius: 0 0 15px 0; }
 .scan-line { position: absolute; width: 100%; height: 2px; background: #6366f1; box-shadow: 0 0 15px #6366f1; animation: moveLine 2.5s infinite linear; }
 @keyframes moveLine { 0% { top: 0% } 50% { top: 100% } 100% { top: 0% } }
-
 .sheet-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: flex-end; }
-.sheet-content { background: white; width: 100%; border-radius: 30px 30px 0 0; padding: 25px; animation: slideUp 0.4s ease-out; }
+.sheet-content { background: white; width: 100%; border-radius: 30px 30px 0 0; padding: 25px; animation: slideUp 0.4s ease-out; max-height: 80vh; overflow-y: auto; }
+.sheet-handle { width: 40px; height: 5px; background: #e2e8f0; border-radius: 10px; margin: 0 auto 15px; }
 .schedule-card-item { background: #f8fafc; border-radius: 18px; border: 1px solid #f1f5f9; }
 .time-box { background: #eef2ff; padding: 5px 10px; border-radius: 10px; }
-
-.custom-toast { position: fixed; top: 25px; left: 50%; transform: translateX(-50%); z-index: 10000; padding: 12px 24px; border-radius: 15px; color: white; display: flex; align-items: center; gap: 10px; font-weight: 700; box-shadow: 0 10px 20px rgba(0,0,0,0.2); background: #1e293b; }
+.custom-toast { position: fixed; top: 25px; left: 50%; transform: translateX(-50%); z-index: 10000; padding: 12px 24px; border-radius: 15px; color: white; display: flex; align-items: center; gap: 10px; font-weight: 700; box-shadow: 0 10px 20px rgba(0,0,0,0.2); background: #1e293b; min-width: 250px; justify-content: center; }
 .custom-toast.error { background: #ef4444; }
 .custom-toast.info { background: #6366f1; }
-
+.smaller { font-size: 0.8rem; }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }

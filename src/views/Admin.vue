@@ -67,11 +67,11 @@
         <div v-if="activeMenu === 'dashboard'" class="dashboard-wrapper fade-in">
           <div class="welcome-banner">
             <h1>Selamat Datang, {{ admin.name }}!</h1>
-            <p>Pantau kehadiran siswa dan kelola data akademik dalam satu panel.</p>
+            <p>Panel Monitoring Real-time: Pantau kehadiran siswa berdasarkan jurusan hari ini.</p>
           </div>
 
-          <div class="stats">
-            <div class="card stat-card">
+          <div class="stats mb-4">
+            <div class="card stat-card main-stat shadow-sm">
               <div class="stat-icon blue"><i class="bi bi-people"></i></div>
               <div class="info">
                 <p>Total Seluruh Siswa</p>
@@ -79,32 +79,61 @@
               </div>
             </div>
 
-            <div class="card stat-card">
-              <div class="stat-icon green"><i class="bi bi-check-circle"></i></div>
+            <div class="card stat-card main-stat shadow-sm">
+              <div class="stat-icon green"><i class="bi bi-check-all"></i></div>
               <div class="info">
-                <p>Total Hadir (Hari Ini)</p>
+                <p>Total Hadir Hari Ini</p>
                 <h2>{{ totalSiswaHadir }} <span>Hadir</span></h2>
               </div>
             </div>
+          </div>
 
-            <div class="card stat-card" v-for="j in jurusanList" :key="j">
-              <div class="stat-icon blue"><i class="bi bi-mortarboard"></i></div>
-              <div class="info">
-                <p>Jurusan {{ j }}</p>
-                <h2>{{ siswa.filter(s => s.class === j && s.status === 'Hadir').length }} <span>Hadir</span></h2>
+          <h3 class="section-label mb-3">Monitoring Per Jurusan</h3>
+          <div class="jurusan-grid">
+            <div class="card jurusan-card shadow-sm" v-for="j in jurusanList" :key="j">
+              <div class="jurusan-header">
+                <div class="jurusan-icon"><i class="bi bi-mortarboard-fill"></i></div>
+                <h4>Jurusan {{ j }}</h4>
               </div>
-            </div>
-
-            <div class="card stat-card gps-status" @click="openGpsMenu" style="cursor: pointer;">
-              <div :class="['stat-icon', configGps.lat ? 'green' : 'red']">
-                <i class="bi bi-pin-map"></i>
+              
+              <div class="jurusan-stats-row">
+                <div class="j-stat hadir">
+                  <span class="label">Hadir</span>
+                  <span class="value">{{ getSiswaByStatus(j, 'Hadir') }}</span>
+                </div>
+                <div class="j-stat sakit">
+                  <span class="label">Sakit</span>
+                  <span class="value">{{ getSiswaByStatus(j, 'Sakit') }}</span>
+                </div>
+                <div class="j-stat izin">
+                  <span class="label">Izin</span>
+                  <span class="value">{{ getSiswaByStatus(j, 'Izin') }}</span>
+                </div>
+                <div class="j-stat alfa">
+                  <span class="label">Alfa</span>
+                  <span class="value">{{ getSiswaByStatus(j, 'Alfa') }}</span>
+                </div>
               </div>
-              <div class="info">
-                <p>Status Geofencing</p>
-                <h2 :class="configGps.lat ? 'text-green' : 'text-red'">{{ configGps.lat ? 'Aktif' : 'Nonaktif' }}</h2>
+              
+              <div class="jurusan-footer">
+                <small>Total Siswa: {{ siswa.filter(s => s.class.includes(j)).length }}</small>
               </div>
             </div>
           </div>
+
+          <div class="card stat-card gps-status-card mt-4 shadow-sm" @click="openGpsMenu" style="cursor: pointer; border-left: 5px solid #3b82f6;">
+              <div :class="['stat-icon', configGps.lat ? 'green' : 'red']">
+                <i class="bi bi-pin-map-fill"></i>
+              </div>
+              <div class="info">
+                <p>Status Geofencing Absensi</p>
+                <h3 :class="configGps.lat ? 'text-green' : 'text-red'">
+                  {{ configGps.lat ? 'Sistem Geofencing Aktif' : 'Sistem Nonaktif' }}
+                  <small style="font-size: 0.8rem; display: block; color: #64748b;">Lokasi: {{ configGps.lat }}, {{ configGps.lng }} (Radius {{ configGps.radius }}m)</small>
+                </h3>
+              </div>
+              <div class="ms-auto"><i class="bi bi-chevron-right text-muted"></i></div>
+            </div>
         </div>
 
         <div v-if="activeMenu === 'gps'" class="box fade-in">
@@ -146,7 +175,7 @@
           <div class="section-header"><h3>Database Siswa</h3></div>
           <div class="table-responsive">
             <table class="table">
-              <thead><tr><th>NIS</th><th>Nama Lengkap</th><th>Jurusan</th><th>Status</th><th>Aksi</th></tr></thead>
+              <thead><tr><th>NIS</th><th>Nama Lengkap</th><th>Kelas</th><th>Status</th><th>Aksi</th></tr></thead>
               <tbody>
                 <tr v-for="s in siswa" :key="s.nis">
                   <td>{{ s.nis }}</td><td class="fw-bold">{{ s.name }}</td><td>{{ s.class }}</td><td v-html="statusIcon(s.status)"></td>
@@ -161,10 +190,20 @@
               <input v-model="formSiswa.nis" placeholder="NIS">
               <input v-model="formSiswa.name" placeholder="Nama">
               <input type="password" v-model="formSiswa.password" placeholder="Password">
-              <select v-model="formSiswa.class">
-                <option value="">Pilih Jurusan</option>
-                <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
-              </select>
+              <div style="display: flex; gap: 5px;">
+                <select v-model="tempSiswa.level" style="flex:1">
+                  <option value="">Tingkat</option>
+                  <option v-for="l in tingkatList" :key="l" :value="l">{{ l }}</option>
+                </select>
+                <select v-model="tempSiswa.jurusan" style="flex:2">
+                  <option value="">Jurusan</option>
+                  <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+                </select>
+                <select v-model="tempSiswa.nomor" style="flex:1">
+                  <option value="">No</option>
+                  <option v-for="n in nomorKelasList" :key="n" :value="n">{{ n }}</option>
+                </select>
+              </div>
               <button class="btn btn-primary" @click="tambahSiswa">Daftar</button>
             </div>
           </div>
@@ -193,15 +232,33 @@
               <button class="btn btn-primary" @click="tambahGuru">Simpan</button>
             </div>
           </div>
+          
           <hr class="my-5">
-          <div class="section-header mt-4"><h3>Jadwal Pelajaran</h3></div>
+          
+          <div class="section-header mt-4" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+            <h3>Jadwal Pelajaran</h3>
+            <div style="display: flex; gap: 10px;">
+              <select v-model="selectedJadwalTingkat" class="formal-select" style="min-width: 120px;">
+                <option value="">Semua Tingkat</option>
+                <option v-for="l in tingkatList" :key="l" :value="l">{{ l }}</option>
+              </select>
+              <select v-model="selectedJadwalJurusan" class="formal-select" style="min-width: 150px;">
+                <option value="">Semua Jurusan</option>
+                <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+              </select>
+            </div>
+          </div>
+
           <div class="table-responsive">
             <table class="table">
               <thead><tr><th>Hari</th><th>Jam</th><th>Mapel</th><th>Guru</th><th>Kelas</th><th>Aksi</th></tr></thead>
               <tbody>
-                <tr v-for="j in jadwal" :key="j._id">
+                <tr v-for="j in filteredJadwalList" :key="j._id">
                   <td>{{ j.hari }}</td><td>{{ j.jam }}</td><td class="fw-bold">{{ j.mapel }}</td><td>{{ j.guru }}</td><td>{{ j.kelas }}</td>
                   <td><button class="btn-icon delete" @click="hapusJadwal(j._id)"><i class="bi bi-trash3"></i></button></td>
+                </tr>
+                <tr v-if="filteredJadwalList.length === 0">
+                  <td colspan="6" style="text-align: center; color: #94a3b8; padding: 20px;">Tidak ada jadwal untuk filter ini.</td>
                 </tr>
               </tbody>
             </table>
@@ -216,7 +273,22 @@
               <input v-model="formJadwal.jam" placeholder="Jam (07:00 - 08:00)">
               <input v-model="formJadwal.mapel" placeholder="Nama Mapel">
               <input v-model="formJadwal.guru" placeholder="Nama Guru">
-              <select v-model="formJadwal.kelas"><option value="">Pilih Kelas</option><option v-for="cl in jurusanList" :key="cl" :value="cl">{{ cl }}</option></select>
+              
+              <div style="display: flex; gap: 5px;">
+                <select v-model="tempJadwal.level" style="flex:1">
+                  <option value="">Tingkat</option>
+                  <option v-for="l in tingkatList" :key="l" :value="l">{{ l }}</option>
+                </select>
+                <select v-model="tempJadwal.jurusan" style="flex:2">
+                  <option value="">Jurusan</option>
+                  <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+                </select>
+                <select v-model="tempJadwal.nomor" style="flex:1">
+                  <option value="">No</option>
+                  <option v-for="n in nomorKelasList" :key="n" :value="n">{{ n }}</option>
+                </select>
+              </div>
+              
               <button class="btn btn-primary" @click="tambahJadwal">Simpan Jadwal</button>
             </div>
           </div>
@@ -243,20 +315,22 @@
           <div class="report-header-ui mb-4">
             <div class="report-title-section">
               <h3 class="formal-title">Laporan Kehadiran Akademik</h3>
-              <p class="formal-subtitle">Data rekapitulasi kehadiran siswa secara real-time</p>
+              <p class="formal-subtitle">Data rekapitulasi kehadiran siswa secara real-time (Senin - Jumat)</p>
             </div>
             <div class="export-controls-formal">
               <div class="filter-group-formal">
-                <label>Filter Jurusan</label>
+                <label>Filter Jurusan / Kelas</label>
                 <select v-model="selectedExportJurusan" class="formal-select">
-                  <option value="">Semua Jurusan</option>
-                  <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+                  <option value="">Semua Data</option>
+                  <optgroup label="Berdasarkan Jurusan">
+                    <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+                  </optgroup>
                 </select>
               </div>
               <div class="filter-group-formal">
                 <label>Filter Periode Hari</label>
                 <select v-model="selectedExportDay" class="formal-select">
-                  <option value="">Semua Hari Absen Siswa</option>
+                  <option value="">Semua Hari Kerja</option>
                   <option v-for="h in filteredHariList" :key="h" :value="h">{{ h }}</option>
                 </select>
               </div>
@@ -317,34 +391,56 @@ const axiosAuth = axios.create({ baseURL: API, headers: { Authorization: `Bearer
 const sidebarOpen = ref(false)
 const activeMenu = ref('dashboard')
 const selectedExportDay = ref('')
-const selectedExportJurusan = ref('') // Added filter jurusan
+const selectedExportJurusan = ref('') 
+
+const selectedJadwalJurusan = ref('')
+const selectedJadwalTingkat = ref('')
+
 const admin = ref({ name: localStorage.getItem('adminName') || 'Admin' })
 
 const jurusanList = ['RPL', 'AKL', 'PS', 'TJKT', 'MPLB']
+const tingkatList = ['X', 'XI', 'XII']
+const nomorKelasList = ['1', '2', '3', '4', '5']
 const hariList = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
-const filteredHariList = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+const filteredHariList = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat']
 
 const siswa = ref([])
 const guru = ref([])
 const jadwal = ref([])
 const configGps = ref({ lat: '', lng: '', radius: 50 })
+
 const formSiswa = ref({ nis: '', name: '', class: '', password: '' })
+const tempSiswa = ref({ level: '', jurusan: '', nomor: '' })
 const formGuru = ref({ name: '', email: '', mapel: '', password: '' })
 const formJadwal = ref({ mapel: '', guru: '', hari: '', jam: '', kelas: '' })
+const tempJadwal = ref({ level: '', jurusan: '', nomor: '' })
 
 let map = null, marker = null, circle = null
 
-// --- LOGIC TAMBAHAN UNTUK DASHBOARD & REPORT ---
 const totalSiswa = computed(() => siswa.value.length)
-const totalSiswaHadir = computed(() => {
-  return siswa.value.filter(s => s.status === 'Hadir').length
+const totalSiswaHadir = computed(() => siswa.value.filter(s => s.status === 'Hadir').length)
+
+// LOGIKA DASHBOARD BARU: Hitung status per jurusan
+const getSiswaByStatus = (jurusan, status) => {
+  return siswa.value.filter(s => {
+    const checkStatus = (s.status || 'Alfa') === status;
+    const checkJurusan = s.class.toUpperCase().includes(jurusan.toUpperCase());
+    return checkStatus && checkJurusan;
+  }).length;
+}
+
+const filteredJadwalList = computed(() => {
+  return jadwal.value.filter(j => {
+    const matchJurusan = selectedJadwalJurusan.value ? j.kelas.toUpperCase().includes(selectedJadwalJurusan.value.toUpperCase()) : true
+    const matchTingkat = selectedJadwalTingkat.value ? j.kelas.toUpperCase().split(' ')[0] === selectedJadwalTingkat.value.toUpperCase() : true
+    return matchJurusan && matchTingkat
+  })
 })
 
 const filteredSiswaReport = computed(() => {
   if (!selectedExportJurusan.value) return siswa.value
-  return siswa.value.filter(s => s.class === selectedExportJurusan.value)
+  return siswa.value.filter(s => s.class.toUpperCase().includes(selectedExportJurusan.value.toUpperCase()))
 })
-// --------------------------------------
 
 const formatAttendanceForTable = (student) => {
   const result = []
@@ -352,7 +448,8 @@ const formatAttendanceForTable = (student) => {
 
   daysToProcess.forEach(dayName => {
     const jadwalHariSiswa = jadwal.value.filter(j => 
-      j.hari === dayName && j.kelas === student.class
+      j.hari === dayName && 
+      student.class.toUpperCase().includes(j.kelas.toUpperCase())
     )
 
     if (jadwalHariSiswa.length > 0) {
@@ -385,6 +482,17 @@ const formatAttendanceForTable = (student) => {
           jamScan: finalMatch ? new Date(finalMatch.timestamp?.$date || finalMatch.timestamp).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'
         })
       })
+    } else {
+      if (selectedExportDay.value === dayName || !selectedExportDay.value) {
+          result.push({
+            day: dayName,
+            jam: "N/A",
+            mapel: "Belum Diatur",
+            guru: "-",
+            status: student.status || 'Alfa',
+            jamScan: "-"
+          })
+      }
     }
   })
   return result
@@ -430,34 +538,30 @@ const getCurrentLocation = () => {
 }
 
 const saveGpsConfig = async () => { try { await axiosAuth.post('/config/gps', configGps.value); alert('Tersimpan!') } catch (err) {} }
-
-const loadSiswa = async () => { 
-  try {
-    const r = await axiosAuth.get('/students');
-    siswa.value = r.data;
-  } catch(e) { console.error(e) }
-}
-
+const loadSiswa = async () => { try { const r = await axiosAuth.get('/students'); siswa.value = r.data; } catch(e) { console.error(e) } }
 const tambahSiswa = async () => { 
+  formSiswa.value.class = `${tempSiswa.value.level} ${tempSiswa.value.jurusan} ${tempSiswa.value.nomor}`.trim();
+  if(!tempSiswa.value.level || !tempSiswa.value.jurusan) return alert("Lengkapi data kelas!");
   await axiosAuth.post('/students', formSiswa.value); 
   formSiswa.value = { nis: '', name: '', class: '', password: '' }; 
+  tempSiswa.value = { level: '', jurusan: '', nomor: '' };
   loadSiswa() 
 }
-
 const hapusSiswa = async (nis) => { if (confirm('Hapus?')) { await axiosAuth.delete(`/students/${nis}`); loadSiswa() } }
 const loadGuru = async () => { await axiosAuth.get('/teachers').then(r => guru.value = r.data) }
 const tambahGuru = async () => { await axiosAuth.post('/teachers', formGuru.value); formGuru.value = { name: '', email: '', mapel: '', password: '' }; loadGuru() }
 const hapusGuru = async (email) => { if (confirm('Hapus?')) { await axiosAuth.delete(`/teachers/${email}`); loadGuru() } }
 const loadJadwal = async () => { await axiosAuth.get('/schedules').then(r => jadwal.value = r.data) }
-const tambahJadwal = async () => { await axiosAuth.post('/schedules', formJadwal.value); formJadwal.value = { mapel: '', guru: '', hari: '', jam: '', kelas: '' }; loadJadwal() }
-const hapusJadwal = async (id) => { if (confirm('Hapus?')) { await axiosAuth.delete(`/schedules/${id}`); loadJadwal() } }
-
-const resetAbsensi = async () => {
-  if(confirm("Reset semua absensi hari ini?")) {
-    await axiosAuth.post('/students/reset');
-    loadSiswa();
-  }
+const tambahJadwal = async () => { 
+  formJadwal.value.kelas = `${tempJadwal.value.level} ${tempJadwal.value.jurusan} ${tempJadwal.value.nomor}`.trim();
+  if(!tempJadwal.value.level || !tempJadwal.value.jurusan) return alert("Lengkapi data kelas untuk jadwal!");
+  await axiosAuth.post('/schedules', formJadwal.value); 
+  formJadwal.value = { mapel: '', guru: '', hari: '', jam: '', kelas: '' }; 
+  tempJadwal.value = { level: '', jurusan: '', nomor: '' };
+  loadJadwal() 
 }
+const hapusJadwal = async (id) => { if (confirm('Hapus?')) { await axiosAuth.delete(`/schedules/${id}`); loadJadwal() } }
+const resetAbsensi = async () => { if(confirm("Reset semua absensi hari ini?")) { await axiosAuth.post('/students/reset'); loadSiswa(); } }
 
 const statusIcon = status => {
   const mapColor = { 'Hadir': 'green', 'Izin': 'yellow', 'Sakit': 'blue', 'Alfa': 'red' }
@@ -467,53 +571,24 @@ const statusIcon = status => {
 const exportToExcel = () => {
   const now = new Date()
   const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
-  const dayName = selectedExportDay.value || hariList[now.getDay()]
-  const targetJurusan = selectedExportJurusan.value || 'Semua Jurusan'
-  
-  const headerInfo = [
-    ["LAPORAN KEHADIRAN SISWA ZIESEN"],
-    ["Jurusan", ": " + targetJurusan],
-    ["Hari", ": " + dayName],
-    ["Tanggal", ": " + dateStr],
-    ["Periode", ": " + now.toLocaleString('id-ID', { month: 'long', year: 'numeric' })],
-    [""], 
-    ["NIS", "NAMA SISWA", "KELAS", "STATUS KEHADIRAN"]
-  ]
-
-  // Use filtered data based on selection
-  const sourceData = selectedExportJurusan.value 
-    ? siswa.value.filter(s => s.class === selectedExportJurusan.value)
-    : siswa.value
-
-  const dataSiswa = sourceData.map(s => {
-    const history = formatAttendanceForTable(s)
-    let finalStatus = 'Alfa'
-    if (history.length > 0) {
-      const statuses = history.map(h => h.status)
-      if (statuses.includes('Hadir')) finalStatus = 'Hadir'
-      else if (statuses.includes('Izin')) finalStatus = 'Izin'
-      else if (statuses.includes('Sakit')) finalStatus = 'Sakit'
-    }
-    return [s.nis, s.name, s.class, finalStatus]
-  })
-
-  const fullData = [...headerInfo, ...dataSiswa]
+  const currentDay = hariList[now.getDay()]
+  const dayName = selectedExportDay.value || (['Sabtu', 'Minggu'].includes(currentDay) ? 'Senin-Jumat' : currentDay)
+  const targetJurusan = selectedExportJurusan.value || 'Semua Data'
+  const headerInfo = [["LAPORAN KEHADIRAN SISWA ZIESEN"], ["Filter", ": " + targetJurusan], ["Hari", ": " + dayName], ["Tanggal", ": " + dateStr], ["Periode", ": " + now.toLocaleString('id-ID', { month: 'long', year: 'numeric' })], [""], ["NIS", "NAMA SISWA", "KELAS", "HARI", "MAPEL", "SESI", "STATUS"]]
+  const sourceData = filteredSiswaReport.value
+  const dataRows = []
+  sourceData.forEach(s => { const history = formatAttendanceForTable(s); history.forEach(h => { dataRows.push([s.nis, s.name, s.class, h.day, h.mapel, h.jam, h.status]) }) })
+  const fullData = [...headerInfo, ...dataRows]
   const ws = XLSX.utils.aoa_to_sheet(fullData); 
   const wb = XLSX.utils.book_new()
-  ws['!cols'] = [{ wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 20 }]
+  ws['!cols'] = [{ wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 15 }, { wch: 15 }]
   XLSX.utils.book_append_sheet(wb, ws, "Laporan Kehadiran"); 
-  XLSX.writeFile(wb, `Laporan_Absensi_${targetJurusan}_${dayName}.xlsx`)
+  XLSX.writeFile(wb, `Laporan_Absensi_${targetJurusan.replace(/ /g, '_')}_${dayName}.xlsx`)
 }
 
 const logout = () => { localStorage.clear(); router.push('/login') }
 
-onMounted(() => { 
-  loadSiswa(); 
-  loadGuru(); 
-  loadJadwal(); 
-  loadGpsFromServer(); 
-  setInterval(loadSiswa, 10000); 
-})
+onMounted(() => { loadSiswa(); loadGuru(); loadJadwal(); loadGpsFromServer(); setInterval(loadSiswa, 10000); })
 </script>
 
 <style scoped>
@@ -531,12 +606,35 @@ onMounted(() => {
 .navbar { height: 70px; background: #fff; padding: 0 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 .content { padding: 30px; overflow-y: auto; flex: 1; }
 .welcome-banner { background: linear-gradient(135deg, #1d4ed8, #1e40af); padding: 30px; border-radius: 16px; color: white; margin-bottom: 30px; }
-.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; }
+
+/* Dashboard Styling */
+.section-label { font-size: 1.1rem; font-weight: 700; color: #334155; }
+.main-stat { flex: 1; min-width: 300px; }
+.jurusan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+.jurusan-card { background: white; border-radius: 16px; border: 1px solid #e2e8f0; padding: 20px; transition: 0.3s; }
+.jurusan-card:hover { transform: translateY(-5px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+.jurusan-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #f1f5f9; }
+.jurusan-icon { width: 40px; height: 40px; border-radius: 10px; background: #eff6ff; color: #3b82f6; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+.jurusan-header h4 { margin: 0; color: #1e293b; font-weight: 700; }
+.jurusan-stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.j-stat { display: flex; flex-direction: column; align-items: center; padding: 10px 5px; border-radius: 10px; }
+.j-stat .label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+.j-stat .value { font-size: 1.2rem; font-weight: 800; }
+.j-stat.hadir { background: #f0fdf4; color: #166534; }
+.j-stat.sakit { background: #eff6ff; color: #1e40af; }
+.j-stat.izin { background: #fffbeb; color: #92400e; }
+.j-stat.alfa { background: #fef2f2; color: #991b1b; }
+.jurusan-footer { margin-top: 15px; padding-top: 10px; border-top: 1px dashed #e2e8f0; color: #94a3b8; text-align: right; }
+
 .stat-card { background: white; padding: 20px; border-radius: 12px; display: flex; align-items: center; gap: 15px; border: 1px solid #e2e8f0; }
 .stat-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
 .stat-icon.blue { background: #eff6ff; color: #3b82f6; }
 .stat-icon.green { background: #f0fdf4; color: #22c55e; }
 .stat-icon.red { background: #fef2f2; color: #ef4444; }
+.text-green { color: #22c55e; }
+.text-red { color: #ef4444; }
+
+/* UI Form & Table */
 .box { background: white; padding: 25px; border-radius: 16px; border: 1px solid #e2e8f0; margin-bottom: 25px; }
 .map-container { height: 350px; border-radius: 12px; margin-bottom: 20px; border: 4px solid #f1f5f9; z-index: 1; }
 .table { width: 100%; border-collapse: collapse; }
@@ -554,21 +652,15 @@ onMounted(() => {
 .export-controls-formal { display: flex; align-items: flex-end; justify-content: flex-start; gap: 20px; margin-top: 25px; padding-bottom: 20px; border-bottom: 2px solid #f1f5f9; flex-wrap: wrap; }
 .filter-group-formal label { display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 8px; }
 .formal-select { padding: 10px 15px; border: 1.5px solid #e2e8f0; border-radius: 6px; min-width: 200px; outline: none; transition: 0.2s; background: #fcfcfc; }
-.formal-select:focus { border-color: #94a3b8; }
 .btn-formal-export { background: #0f172a; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: 0.3s; margin-top: 5px; }
-.btn-formal-export:hover { background: #334155; }
 .table-formal { width: 100%; border-collapse: collapse; margin-top: 10px; }
 .table-formal th { padding: 18px 15px; text-align: left; background: #f8fafc; color: #334155; font-size: 0.85rem; font-weight: 700; border-bottom: 2px solid #e2e8f0; text-transform: uppercase; }
 .table-formal td { padding: 16px 15px; border-bottom: 1px solid #f1f5f9; font-size: 0.95rem; color: #1e293b; }
-.table-formal tr:hover { background: #fcfcfc; }
-.text-bold { font-weight: 600; }
-.text-secondary { color: #64748b; font-size: 0.9rem; }
-.formal-status { font-weight: 600; color: #0f172a; border: 1px solid #e2e8f0; padding: 4px 10px; border-radius: 4px; background: #fff; font-size: 0.85rem; }
 
 .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
 .btn-primary { background: #3b82f6; color: white; }
-.btn-success { background: #22c55e; color: white; }
 .btn-danger { background: #ef4444; color: white; }
+.btn-outline { border: 1.5px solid #e2e8f0; background: white; color: #475569; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
 .form-grid input, .form-grid select { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; }
 .btn-logout { background: #ef4444; color: white; border: none; padding: 12px; border-radius: 8px; width: calc(100% - 30px); margin: 15px; cursor: pointer; }
@@ -580,5 +672,6 @@ onMounted(() => {
   .sidebar { position: fixed; left: -280px; }
   .sidebar.show { left: 0; }
   .export-controls-formal { flex-direction: column; align-items: stretch; }
+  .jurusan-grid { grid-template-columns: 1fr; }
 }
 </style>
