@@ -209,7 +209,7 @@ const loadAttendance = async ()=>{
       if(me.status === 'Hadir' || me.status === 'Sakit' || me.status === 'Izin') {
         const lastAttendanceTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
         const diff = new Date().getTime() - new Date(lastAttendanceTime).getTime()
-        if (me.status === 'Hadir' && diff > (2 * 60 * 60 * 1000)) {
+        if (me.status === 'Hadir' && diff > (1 * 50 * 60 * 1000)) {
           student.value.status = 'Belum Absen'
         }
         student.value.lastAttendance = lastAttendanceTime
