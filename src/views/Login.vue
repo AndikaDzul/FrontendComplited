@@ -15,7 +15,7 @@
 
     <div class="login-card shadow-lg">
       <div class="main-logo-container">
-        <img src="../absen.png" alt="ZieSen Logo" class="brand-image shadow-sm">
+        <img src="../andika.jvg.png" alt="ZieSen Logo" class="brand-image shadow-sm">
       </div>
 
       <div class="header">
