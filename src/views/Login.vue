@@ -10,7 +10,7 @@
         <div class="spinner"></div>
         <div class="spinner-inner"></div>
       </div>
-      <p class="mt-3 fw-bold text-dark">Memverifikasi Akun...</p>
+      <p class="mt-3 fw-bold text-dark">Memverifikasi Sesi...</p>
     </div>
 
     <div class="login-card shadow-lg">
@@ -73,7 +73,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 
@@ -85,6 +85,30 @@ const role = ref('siswa')
 const error = ref('')
 const loading = ref(false)
 
+// ================= LOGIKA AUTO-LOGIN (PERSISTENCE) =================
+onMounted(() => {
+  const isLoggedIn = localStorage.getItem('isLoggedIn')
+  const savedRole = localStorage.getItem('role')
+
+  if (isLoggedIn === 'true' && savedRole) {
+    loading.value = true
+    // Jika siswa sudah login sebelumnya, langsung arahkan ke dashboard siswa
+    if (savedRole === 'siswa') {
+      router.replace('/student-dashboard')
+    } 
+    // Jika guru atau admin sudah login
+    else if (savedRole === 'guru') {
+      router.replace('/dashboard')
+    } 
+    else if (savedRole === 'admin') {
+      router.replace('/admin-dashboard')
+    }
+    // Selesai loading setelah redirect
+    setTimeout(() => { loading.value = false }, 500)
+  }
+})
+
+// ================= LOGIKA LOGIN MANUAL =================
 const handleLogin = async () => {
   error.value = ''
   loading.value = true
@@ -99,6 +123,7 @@ const handleLogin = async () => {
     const response = await axios.post(`${backendUrl}${endpoint}`, body)
     const userData = response.data.user || response.data.data || response.data
 
+    // Simpan status login agar tidak perlu login ulang
     localStorage.clear()
     localStorage.setItem('isLoggedIn', 'true')
     localStorage.setItem('role', role.value)
@@ -247,7 +272,6 @@ const handleLogin = async () => {
   box-shadow: 0 8px 15px rgba(79, 70, 229, 0.3);
 }
 
-/* STYLE BARU UNTUK PENGADUAN */
 .support-section {
   margin-top: 25px;
   padding-top: 15px;
@@ -285,7 +309,6 @@ const handleLogin = async () => {
   gap: 8px;
 }
 
-/* Overlay & Spinner */
 .overlay {
   position: fixed; inset: 0; background: rgba(255,255,255,0.8);
   z-index: 9999; display: flex; flex-direction: column;
@@ -299,7 +322,6 @@ const handleLogin = async () => {
 }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-/* Animasi Slide Up untuk Error */
 .slide-up-enter-active, .slide-up-leave-active { transition: all 0.3s ease; }
 .slide-up-enter-from, .slide-up-leave-to { opacity: 0; transform: translateY(10px); }
 </style>

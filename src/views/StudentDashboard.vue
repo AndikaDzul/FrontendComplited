@@ -269,39 +269,31 @@ const closeGuide = () => {
 
 const logout = () => { localStorage.clear(); router.push('/login') }
 
-// ================= LIFECYCLE (LOGIC PERSISTENCE) =================
 onMounted(async () => {
-  // Cek apakah data NIS ada di LocalStorage
   const savedNis = localStorage.getItem('studentNis')
-  
-  // Jika tidak ada NIS, tendang ke login (Proteksi Sesi)
-  if (!savedNis || savedNis === 'undefined' || savedNis === null) {
+  if (!savedNis || savedNis === 'undefined') {
     router.replace('/login')
     return
   }
 
-  // Jika ada, isi data student dari storage agar tampilan tidak kosong saat loading
-  student.value.nis = savedNis
-  student.value.name = localStorage.getItem('studentName') || 'Siswa'
-  student.value.class = localStorage.getItem('studentClass') || '-'
-  
-  // Cek Guide
   if (!localStorage.getItem('hasSeenGuide')) {
     showGuide.value = true
   }
 
+  student.value.nis = savedNis
+  student.value.name = localStorage.getItem('studentName') || 'Siswa'
+  student.value.class = localStorage.getItem('studentClass') || '-'
+  
   // Load Foto Profil dari LocalStorage
   const savedImg = localStorage.getItem(`profile_img_${savedNis}`)
   if(savedImg) profileImage.value = savedImg
 
-  // Ambil data terbaru dari server
   await Promise.all([
     loadAttendance(),
     loadGpsConfig(),
     fetchJadwalFromAdmin()
   ])
 
-  // Interval sync data setiap 30 detik
   const interval = setInterval(loadAttendance, 30000) 
   onUnmounted(() => clearInterval(interval))
 })
