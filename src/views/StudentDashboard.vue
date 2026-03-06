@@ -14,7 +14,7 @@ const backendUrl = 'https://backend-complited.vercel.app'
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null })
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
-const showGuide = ref(false) // State untuk panduan
+const showGuide = ref(false) 
 let html5QrCode = null  
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
@@ -55,10 +55,16 @@ const setMood = (mood) => {
 const jadwalHariIni = ref([])
 const schoolConfig = ref({ lat: null, lng: null, radius: 50 })
 
-// ================= AUDIO & TOAST =================
-const playSuccessSound = () => {
+// ================= AUDIO & VIBRATION =================
+const playSuccessFeedback = () => {
+  // 1. Suara Alarm/Berhasil
   const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2185/2185-preview.mp3')
-  audio.play().catch(() => {})
+  audio.play().catch((e) => console.log("Audio play blocked by browser"))
+
+  // 2. Getaran (Vibrate) - Bergetar selama 200ms
+  if ('vibrate' in navigator) {
+    navigator.vibrate([200, 100, 200]) // pola: getar, jeda, getar
+  }
 }
 
 const toast = ref({ show:false, msg:'', type:'success' })
@@ -67,7 +73,7 @@ const showToast = (msg,type='success')=>{
   setTimeout(()=>toast.value.show=false,3000)
 }
 
-// ================= LOGIKA GEOLOCATION (OPTIMIZED) =================
+// ================= LOGIKA GEOLOCATION =================
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371e3 
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -128,8 +134,11 @@ const loadGpsConfig = async () => {
 
 // ================= SCANNER =================
 const startScan = async () => {
-  if (isWeekend.value) { showToast('Hari ini libur.', 'error'); return }
-  if (!canAbsen.value) { showToast('Tunggu 2 jam untuk absen lagi.', 'error'); return }
+  // Note: isWeekend logic dihapus agar bisa absen setiap hari
+  if (!canAbsen.value) { 
+    showToast('Tunggu 2 jam untuk absen lagi.', 'error')
+    return 
+  }
   
   showToast('Cek Lokasi...', 'info')
   try {
@@ -183,7 +192,10 @@ const submitAttendance = async(token)=>{
     
     student.value.status = 'Hadir'
     student.value.lastAttendance = now.toISOString()
-    playSuccessSound()
+    
+    // Memberikan Feedback Suara dan Getaran
+    playSuccessFeedback()
+    
     showToast('Absensi Berhasil!')
     
     setTimeout(() => { 
@@ -209,6 +221,7 @@ const loadAttendance = async ()=>{
       if(me.status === 'Hadir' || me.status === 'Sakit' || me.status === 'Izin') {
         const lastAttendanceTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
         const diff = new Date().getTime() - new Date(lastAttendanceTime).getTime()
+        // Reset status jika sudah lewat 50 menit untuk mapel baru (logika asli Anda)
         if (me.status === 'Hadir' && diff > (1 * 50 * 60 * 1000)) {
           student.value.status = 'Belum Absen'
         }
@@ -218,21 +231,20 @@ const loadAttendance = async ()=>{
   } catch(err){ console.log('Load attendance error', err) }
 }
 
+// isWeekend diatur selalu FALSE agar tidak pernah dianggap libur
 const isWeekend = computed(() => {
-  const day = new Date().getDay()
-  return day === 0 || day === 6 
+  return false 
 })
 
 const canAbsen = computed(() => {
-  if (isWeekend.value) return false
   if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
   const lastTime = new Date(student.value.lastAttendance).getTime()
   const now = new Date().getTime()
+  // Interval 2 jam
   return (now - lastTime) > (2 * 60 * 60 * 1000)
 })
 
 const displayStatus = computed(() => {
-  if (isWeekend.value) return 'Libur Akhir Pekan'
   if(student.value.status === 'Hadir' && student.value.lastAttendance){
     return `Hadir - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
   }
@@ -241,7 +253,6 @@ const displayStatus = computed(() => {
 
 const hariIniText = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
 
-// Logic Tutup Panduan
 const closeGuide = () => {
   showGuide.value = false
   localStorage.setItem('hasSeenGuide', 'true')
@@ -256,7 +267,6 @@ onMounted(async () => {
     return
   }
 
-  // Cek apakah user pertama kali login/lihat panduan
   if (!localStorage.getItem('hasSeenGuide')) {
     showGuide.value = true
   }
@@ -320,7 +330,7 @@ onUnmounted(()=> stopScan())
             <div class="step-icon"><i class="bi bi-clock-history"></i></div>
             <div class="step-text">
               <h6>Interval Absen</h6>
-              <p>Absensi hanya bisa dilakukan sesuai jadwal mapel <strong></strong> untuk mata pelajaran berikutnya.</p>
+              <p>Absensi dapat dilakukan untuk setiap pergantian mata pelajaran.</p>
             </div>
           </div>
         </div>
@@ -352,7 +362,7 @@ onUnmounted(()=> stopScan())
   </nav>
 
   <main class="container px-4 mt-4">
-    <section class="status-card shadow-sm mb-4" :class="student.status === 'Hadir' ? 'status-active' : (isWeekend ? 'status-weekend' : 'status-pending')">
+    <section class="status-card shadow-sm mb-4" :class="student.status === 'Hadir' ? 'status-active' : 'status-pending'">
       <div class="card-body p-4 text-white">
         <div class="d-flex justify-content-between opacity-75 small mb-2">
           <span>STATUS KEHADIRAN</span>
@@ -360,7 +370,7 @@ onUnmounted(()=> stopScan())
         </div>
         <h2 class="display-6 fw-bold mb-3">{{ displayStatus }}</h2>
         <div class="d-flex align-items-center">
-          <div class="pulse-dot me-2" v-if="!isWeekend"></div>
+          <div class="pulse-dot me-2"></div>
           <span class="small opacity-90">{{ hariIniText }}, {{ new Date().toLocaleDateString('id-ID') }}</span>
         </div>
       </div>
@@ -370,7 +380,7 @@ onUnmounted(()=> stopScan())
       <div class="col-6">
         <button class="action-card btn w-100 py-4 shadow-sm" @click="startScan" :disabled="!canAbsen" :class="!canAbsen ? 'disabled-card' : 'scan-active'">
           <i class="bi bi-qr-code-scan d-block mb-2 fs-2"></i>
-          <span class="fw-bold small">{{ isWeekend ? 'HARI LIBUR' : 'ABSENSI' }}</span>
+          <span class="fw-bold small">ABSENSI</span>
         </button>
       </div>
       <div class="col-6">
@@ -420,7 +430,7 @@ onUnmounted(()=> stopScan())
         </div>
         <div class="d-flex">
           <div class="guide-num me-3">3</div>
-          <p class="m-0">Jadwal otomatis menyesuaikan jurusan Anda.</p>
+          <p class="m-0">Absensi tersedia setiap hari.</p>
         </div>
       </div>
     </div>
@@ -488,7 +498,6 @@ onUnmounted(()=> stopScan())
 .app-container { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; min-height: 100vh; max-width: 500px; margin: 0 auto; position: relative; }
 .user-avatar-glow { width: 42px; height: 42px; background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
 
-/* --- MODAL PANDUAN STYLING --- */
 .guide-modal-overlay {
   position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8);
   backdrop-filter: blur(8px); z-index: 11000;
@@ -517,7 +526,6 @@ onUnmounted(()=> stopScan())
 }
 .btn-primary-custom:hover { background: #4f46e5; transform: translateY(-2px); }
 
-/* Banner Styling */
 .banner-container { border-radius: 20px; overflow: hidden; position: relative; }
 .banner-wrapper { position: relative; width: 100%; height: 200px; }
 .banner-img { width: 100%; height: 156%; object-fit: cover; }
@@ -532,15 +540,12 @@ onUnmounted(()=> stopScan())
   text-shadow: 0 2px 4px rgba(0,0,0,0.5);
 }
 
-/* Mood Section Styling */
 .mood-btn { border: 2px solid transparent; transition: 0.3s; padding: 8px; border-radius: 15px; }
 .mood-btn.active { background: #eef2ff; border-color: #6366f1; transform: scale(1.1); }
 .quote-box { background: #f8faff; border-left: 4px solid #6366f1; animation: slideDown 0.4s ease-out; }
 
-/* Status Cards */
 .status-card { border-radius: 28px; border: none; overflow: hidden; transition: 0.4s; }
 .status-pending { background: linear-gradient(135deg, #1e293b, #334155); }
-.status-weekend { background: linear-gradient(135deg, #ef4444, #b91c1c); }
 .status-active { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 12px 24px rgba(16, 185, 129, 0.25) !important; }
 .pulse-dot { width: 8px; height: 8px; background: #fff; border-radius: 50%; animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.7); } 70% { box-shadow: 0 0 0 10px rgba(255,255,255,0); } 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
@@ -550,7 +555,6 @@ onUnmounted(()=> stopScan())
 .disabled-card { background: #f1f5f9 !important; color: #94a3b8 !important; border: none; cursor: not-allowed; }
 .guide-num { width: 24px; height: 24px; background: #eef2ff; color: #6366f1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.75rem; flex-shrink: 0; }
 
-/* Scanner */
 .scanner-fullscreen { position:fixed; inset:0; background:#000; z-index:9999; display:flex; flex-direction:column; }
 .scanner-nav { z-index: 10; background: rgba(0,0,0,0.5); }
 .scanner-body { flex:1; position:relative; overflow: hidden; }
@@ -565,7 +569,6 @@ onUnmounted(()=> stopScan())
 .scan-line { position: absolute; width: 100%; height: 2px; background: #6366f1; box-shadow: 0 0 15px #6366f1; animation: moveLine 2.5s infinite linear; }
 @keyframes moveLine { 0% { top: 0% } 50% { top: 100% } 100% { top: 0% } }
 
-/* Sheet & Toast */
 .sheet-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: flex-end; }
 .sheet-content { background: white; width: 100%; border-radius: 30px 30px 0 0; padding: 25px; animation: slideUp 0.4s ease-out; max-height: 80vh; overflow-y: auto; }
 .sheet-handle { width: 40px; height: 5px; background: #e2e8f0; border-radius: 10px; margin: 0 auto 15px; }
