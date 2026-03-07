@@ -23,52 +23,76 @@ const showGuide = ref(false)
 const profileVisible = ref(false) 
 const profileImage = ref(null)    
 const showLogoutConfirm = ref(false) 
+const showVibrateBanner = ref(false) 
 let html5QrCode = null  
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 
-// ================= LOGIKA GETARAN (VIBRATION) =================
-let vibrationInterval = null
-
-const startReminderVibration = () => {
-  // Hanya jalankan jika browser mendukung dan belum ada interval yang berjalan
-  if ('vibrate' in navigator && !vibrationInterval) {
-    vibrationInterval = setInterval(() => {
-      if (student.value.status === 'Belum Absen') {
-        // Pola getar: getar 500ms, diam 100ms, getar 500ms
-        navigator.vibrate([500, 100, 500]);
-        console.log("Reminder: Getaran aktif (Belum Absen)");
-      } else {
-        stopVibration();
-      }
-    }, 10000); // Berulang setiap 10 detik
-  }
-}
-
-const stopVibration = () => {
-  if (vibrationInterval) {
-    clearInterval(vibrationInterval);
-    vibrationInterval = null;
-    if ('vibrate' in navigator) navigator.vibrate(0); // Hentikan getaran yang sedang berlangsung
-    console.log("Getaran dihentikan (Sudah Absen/Sesi Berakhir)");
-  }
-}
-
-// Pantau perubahan status untuk mengontrol getaran
-watch(() => student.value.status, (newStatus) => {
-  if (newStatus === 'Hadir' || newStatus === 'Sakit' || newStatus === 'Izin') {
-    stopVibration();
-  } else if (newStatus === 'Belum Absen') {
-    startReminderVibration();
-  }
-});
-
-// NOTIFICATION STATE
+// NOTIFICATION STATE (Dipindahkan ke atas agar bisa diakses logic reminder)
 const isNotificationEnabled = ref(localStorage.getItem('notif_active') !== 'false')
+
+// ================= LOGIKA PENGINGAT (GETAR + SUARA + BANNER) =================
+let reminderInterval = null
+const alertAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3')
+
+const startReminderSystem = () => {
+  // Hanya jalan jika notifikasi aktif dan status belum absen
+  if (!reminderInterval && isNotificationEnabled.value && student.value.status === 'Belum Absen') {
+    reminderInterval = setInterval(() => {
+      if (student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
+        // 1. Efek Getar
+        if ('vibrate' in navigator) {
+          navigator.vibrate([500, 100, 500]);
+        }
+        
+        // 2. Efek Suara
+        alertAudio.play().catch(() => console.log("Interaksi user diperlukan untuk suara"));
+
+        // 3. Banner Visual
+        showVibrateBanner.value = true;
+        setTimeout(() => { 
+          showVibrateBanner.value = false; 
+        }, 7000);
+
+        console.log("Reminder Active");
+      } else {
+        stopReminderSystem();
+      }
+    }, 12000);
+  }
+}
+
+const stopReminderSystem = () => {
+  if (reminderInterval) {
+    clearInterval(reminderInterval);
+    reminderInterval = null;
+  }
+  showVibrateBanner.value = false;
+  if ('vibrate' in navigator) navigator.vibrate(0);
+  alertAudio.pause();
+  alertAudio.currentTime = 0;
+  console.log("Reminder Stopped");
+}
+
+// Pantau perubahan toggle notifikasi di profil
 watch(isNotificationEnabled, (newVal) => {
   localStorage.setItem('notif_active', newVal)
-  if (newVal) requestNotificationPermission()
+  if (newVal) {
+    requestNotificationPermission();
+    if (student.value.status === 'Belum Absen') startReminderSystem();
+  } else {
+    stopReminderSystem(); // Langsung matikan jika user menonaktifkan di profil
+  }
 })
+
+// Pantau perubahan status
+watch(() => student.value.status, (newStatus) => {
+  if (['Hadir', 'Sakit', 'Izin'].includes(newStatus)) {
+    stopReminderSystem();
+  } else if (newStatus === 'Belum Absen' && isNotificationEnabled.value) {
+    startReminderSystem();
+  }
+});
 
 // Banner Slider Logic
 const activeBannerIndex = ref(0)
@@ -141,7 +165,7 @@ const showToast = (msg,type='success')=>{
   setTimeout(()=>toast.value.show=false,3000)
 }
 
-// ================= NOTIFIKASI =================
+// ================= NOTIFIKASI NATIVE =================
 let notificationInterval = null
 const requestNotificationPermission = () => {
   if ("Notification" in window) Notification.requestPermission()
@@ -150,9 +174,12 @@ const requestNotificationPermission = () => {
 const sendReminderNotification = () => {
   if (student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
     if (Notification.permission === "granted") {
-      new Notification("Peringatan Absensi!", { body: `Halo ${student.value.name}, kamu belum absen.`, icon: '/favicon.ico' })
+      new Notification("ZieSen: Belum Absen", { 
+        body: `Halo ${student.value.name}, jangan lupa absen hari ini!`, 
+        icon: '/favicon.ico',
+        tag: 'absen-reminder' // Menghindari duplikasi notif
+      })
     }
-    showToast("Penting: Kamu belum absen!", "error")
   }
 }
 
@@ -208,9 +235,8 @@ const loadAttendance = async ()=>{
       student.value.gender = me.gender || ''
       student.value.status = me.status || 'Belum Absen'
       
-      // Jika status dari DB sudah absen, hentikan getaran
       if (['Hadir', 'Sakit', 'Izin'].includes(student.value.status)) {
-        stopVibration();
+        stopReminderSystem();
       }
 
       if(me.attendanceHistory) {
@@ -269,10 +295,9 @@ const submitAttendance = async(token)=>{
       status: 'Hadir', qrToken: token, mapel: currentMapel, timestamp: now.toISOString() 
     })
     
-    // UPDATE STATUS DAN STOP GETARAN
     student.value.status = 'Hadir'
     student.value.lastAttendance = now.toISOString()
-    stopVibration(); 
+    stopReminderSystem(); 
     
     playSuccessFeedback(); 
     showToast('Absensi Berhasil!')
@@ -297,7 +322,7 @@ const hariIniText = computed(()=> new Date().toLocaleDateString('id-ID', { weekd
 // ================= LOGOUT =================
 const confirmLogout = () => { showLogoutConfirm.value = true }
 const executeLogout = () => { 
-  stopVibration();
+  stopReminderSystem();
   localStorage.setItem('isLoggedIn', 'false')
   router.push('/login') 
 }
@@ -317,22 +342,35 @@ onMounted(async () => {
 
   await Promise.all([loadAttendance(), loadGpsConfig(), fetchJadwalFromAdmin()])
   
-  // MULAI GETARAN JIKA BELUM ABSEN
-  if (student.value.status === 'Belum Absen') startReminderVibration();
+  if (student.value.status === 'Belum Absen') startReminderSystem();
 
   const interval = setInterval(loadAttendance, 30000) 
   notificationInterval = setInterval(sendReminderNotification, 60000)
   
+  // Logic untuk mematikan audio jika tab tidak terlihat (Background)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      // Jika tab ditutup/disembunyikan, matikan suara/getar runtime saat ini
+      if ('vibrate' in navigator) navigator.vibrate(0);
+      alertAudio.pause();
+    } else {
+      // Jika tab dibuka kembali, cek apakah perlu start lagi
+      if (student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
+        startReminderSystem();
+      }
+    }
+  });
+
   onUnmounted(() => { 
     clearInterval(interval); 
     clearInterval(notificationInterval); 
-    stopVibration(); 
+    stopReminderSystem(); 
   })
 })
 
 onUnmounted(()=> {
   stopScan();
-  stopVibration();
+  stopReminderSystem();
 })
 </script>
 
@@ -340,6 +378,19 @@ onUnmounted(()=> {
 <div class="app-container">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+
+  <transition name="slide-down">
+    <div v-if="showVibrateBanner && student.status === 'Belum Absen'" class="vibrate-banner shadow" @click="startScan">
+        <div class="d-flex align-items-center gap-3">
+           <div class="vibrate-icon"><i class="bi bi-bell-fill"></i></div>
+           <div class="flex-grow-1">
+             <h6 class="mb-0 fw-bold">Anda belum absen!</h6>
+             <small>Segera lakukan absensi sekarang.</small>
+           </div>
+           <i class="bi bi-chevron-right"></i>
+        </div>
+    </div>
+  </transition>
 
   <transition name="fade">
     <div v-if="toast.show" class="custom-toast" :class="toast.type">
@@ -351,12 +402,9 @@ onUnmounted(()=> {
   <transition name="fade">
     <div v-if="showLogoutConfirm" class="guide-modal-overlay" style="z-index: 12000;">
       <div class="guide-modal-content text-center p-4">
-        <div class="logout-icon-box mb-3">
-          <i class="bi bi-box-arrow-right text-danger"></i>
-        </div>
+        <div class="logout-icon-box mb-3"><i class="bi bi-box-arrow-right text-danger"></i></div>
         <h5 class="fw-bold mb-2">Yakin Ingin Keluar?</h5>
-        <p class="text-muted small mb-4">NIS Anda akan tetap tersimpan untuk memudahkan masuk kembali.</p>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 mt-4">
           <button @click="showLogoutConfirm = false" class="btn btn-light w-100 py-2 rounded-pill fw-bold">Batal</button>
           <button @click="executeLogout" class="btn btn-danger w-100 py-2 rounded-pill fw-bold">Keluar</button>
         </div>
@@ -399,9 +447,7 @@ onUnmounted(()=> {
           <small class="text-muted">Profil <i class="bi bi-chevron-right small"></i></small>
         </div>
       </div>
-      <button @click="confirmLogout" class="btn btn-light btn-sm rounded-pill px-3 text-danger fw-bold">
-        <i class="bi bi-box-arrow-right"></i>
-      </button>
+      <button @click="confirmLogout" class="btn btn-light btn-sm rounded-pill px-3 text-danger fw-bold"><i class="bi bi-box-arrow-right"></i></button>
     </div>
   </nav>
 
@@ -492,8 +538,10 @@ onUnmounted(()=> {
         <label class="text-muted smaller fw-bold mb-2 d-block">PENGATURAN</label>
         <div class="info-item shadow-sm border mb-4">
           <div class="p-3 d-flex justify-content-between align-items-center">
-            <div><span class="fw-bold d-block small">Pengingat Absen</span><small class="text-muted smaller">Notifikasi & Getar berkala</small></div>
-            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" v-model="isNotificationEnabled"></div>
+            <div><span class="fw-bold d-block small">Pengingat Absen</span><small class="text-muted smaller">Getar, Suara & Banner Visual</small></div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" v-model="isNotificationEnabled">
+            </div>
           </div>
         </div>
 
