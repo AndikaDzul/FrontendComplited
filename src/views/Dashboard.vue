@@ -34,8 +34,9 @@ const videoRef = ref(null)
 const canvasRef = ref(null)
 const isDetecting = ref(false)
 const aiStudentCount = ref(parseInt(localStorage.getItem('ai_count_' + selectedClass.value)) || 0)
-let detectionInterval = null
+let animationId = null // Mengganti setInterval dengan requestAnimationFrame
 let stream = null
+let net = null // Cache model AI
 
 // ===== QR GURU =====
 const guruTokenPrefix = 'ABSENSI-GURU'
@@ -94,7 +95,12 @@ const startCamera = async () => {
   showCameraModal.value = true
   try {
     stream = await navigator.mediaDevices.getUserMedia({ 
-      video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } } 
+      video: { 
+        facingMode: 'environment', 
+        width: { ideal: 640 }, 
+        height: { ideal: 480 },
+        frameRate: { ideal: 20 } // Mengurangi beban frame rate untuk stabilisasi
+      } 
     })
     if (videoRef.value) {
       videoRef.value.srcObject = stream
@@ -112,7 +118,7 @@ const stopCamera = () => {
   if (stream) {
     stream.getTracks().forEach(track => track.stop())
   }
-  if (detectionInterval) clearInterval(detectionInterval)
+  if (animationId) cancelAnimationFrame(animationId)
   showCameraModal.value = false
   isDetecting.value = false
 }
@@ -125,21 +131,28 @@ const saveAiResult = () => {
 
 const initAiDetection = async () => {
   isDetecting.value = true
-  if (!window.cocoSsd) {
+  if (!net) {
     showToast('Memuat AI Model...', 'success')
+    // Menggunakan lite model jika tersedia atau memuat sekali saja
+    net = await window.cocoSsd.load({ base: 'mobilenet_v2' }) 
   }
-  const model = await window.cocoSsd.load()
-  detectionInterval = setInterval(async () => {
-    if (videoRef.value && videoRef.value.readyState === 4 && isDetecting.value) {
+
+  const detectFrame = async () => {
+    if (!isDetecting.value || !videoRef.value) return
+
+    if (videoRef.value.readyState === 4) {
       if (canvasRef.value) {
         canvasRef.value.width = videoRef.value.videoWidth
         canvasRef.value.height = videoRef.value.videoHeight
       }
-      const predictions = await model.detect(videoRef.value)
+
+      const predictions = await net.detect(videoRef.value)
       const persons = predictions.filter(p => p.class === 'person' && p.score > 0.5)
       aiStudentCount.value = persons.length
+
       const ctx = canvasRef.value.getContext('2d')
       ctx.clearRect(0, 0, canvasRef.value.width, canvasRef.value.height)
+
       persons.forEach(p => {
         ctx.strokeStyle = '#6366f1'
         ctx.lineWidth = 4
@@ -149,7 +162,11 @@ const initAiDetection = async () => {
         ctx.fillText(`Siswa`, p.bbox[0], p.bbox[1] > 10 ? p.bbox[1] - 5 : 10)
       })
     }
-  }, 800)
+    // Loop menggunakan frame browser agar smooth
+    animationId = requestAnimationFrame(detectFrame)
+  }
+
+  detectFrame()
 }
 
 // ================= LOGIC =================
@@ -474,7 +491,7 @@ onUnmounted(() => {
         </button>
         <div class="drag-handle mb-4"></div>
         <div class="text-center mb-3">
-          <h5 class="fw-bold mb-0">AI Student Scanner</h5>
+          <h5 class="fw-bold mb-0">Student Scanner</h5>
           <p class="text-muted small">Mendeteksi jumlah siswa secara otomatis</p>
         </div>
         <div class="camera-container shadow-sm mb-3">
