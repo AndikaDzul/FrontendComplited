@@ -28,70 +28,43 @@ let html5QrCode = null
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 
-// NOTIFICATION STATE (Dipindahkan ke atas agar bisa diakses logic reminder)
 const isNotificationEnabled = ref(localStorage.getItem('notif_active') !== 'false')
 
-// ================= LOGIKA PENGINGAT (GETAR + SUARA + BANNER) =================
-let reminderInterval = null
-const alertAudio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3')
+// ================= LOGIKA PENGINGAT (BACKGROUND SYSTEM) =================
+// PENYEMPURNAAN: Fungsi kirim data ke SW agar notif muncul seperti WA
+const updateBackgroundReminder = () => {
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({
+      type: 'UPDATE_STATUS',
+      status: student.value.status,
+      enabled: isNotificationEnabled.value,
+      name: student.value.name
+    });
+  }
+}
 
 const startReminderSystem = () => {
-  // Hanya jalan jika notifikasi aktif dan status belum absen
-  if (!reminderInterval && isNotificationEnabled.value && student.value.status === 'Belum Absen') {
-    reminderInterval = setInterval(() => {
-      if (student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
-        // 1. Efek Getar
-        if ('vibrate' in navigator) {
-          navigator.vibrate([500, 100, 500]);
-        }
-        
-        // 2. Efek Suara
-        alertAudio.play().catch(() => console.log("Interaksi user diperlukan untuk suara"));
-
-        // 3. Banner Visual
-        showVibrateBanner.value = true;
-        setTimeout(() => { 
-          showVibrateBanner.value = false; 
-        }, 7000);
-
-        console.log("Reminder Active");
-      } else {
-        stopReminderSystem();
-      }
-    }, 12000);
+  updateBackgroundReminder();
+  if (isNotificationEnabled.value && student.value.status === 'Belum Absen') {
+     showVibrateBanner.value = true;
   }
 }
 
 const stopReminderSystem = () => {
-  if (reminderInterval) {
-    clearInterval(reminderInterval);
-    reminderInterval = null;
-  }
+  updateBackgroundReminder();
   showVibrateBanner.value = false;
-  if ('vibrate' in navigator) navigator.vibrate(0);
-  alertAudio.pause();
-  alertAudio.currentTime = 0;
-  console.log("Reminder Stopped");
 }
 
-// Pantau perubahan toggle notifikasi di profil
 watch(isNotificationEnabled, (newVal) => {
   localStorage.setItem('notif_active', newVal)
   if (newVal) {
     requestNotificationPermission();
-    if (student.value.status === 'Belum Absen') startReminderSystem();
-  } else {
-    stopReminderSystem(); // Langsung matikan jika user menonaktifkan di profil
   }
+  updateBackgroundReminder();
 })
 
-// Pantau perubahan status
-watch(() => student.value.status, (newStatus) => {
-  if (['Hadir', 'Sakit', 'Izin'].includes(newStatus)) {
-    stopReminderSystem();
-  } else if (newStatus === 'Belum Absen' && isNotificationEnabled.value) {
-    startReminderSystem();
-  }
+watch(() => student.value.status, () => {
+  updateBackgroundReminder();
 });
 
 // Banner Slider Logic
@@ -128,7 +101,6 @@ const setMood = (mood) => {
   moodQuote.value = mood.type === 'sad' ? sadQuotes[Math.floor(Math.random() * sadQuotes.length)] : happyQuotes[Math.floor(Math.random() * happyQuotes.length)]
 }
 
-// Foto Profil
 const handleImageUpload = (event) => {
   const file = event.target.files[0]
   if (file) {
@@ -152,7 +124,6 @@ const genderDetect = computed(() => {
 const jadwalHariIni = ref([])
 const schoolConfig = ref({ lat: null, lng: null, radius: 50 })
 
-// ================= FEEDBACK & TOAST =================
 const playSuccessFeedback = () => {
   const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2185/2185-preview.mp3')
   audio.play().catch(() => {})
@@ -165,25 +136,14 @@ const showToast = (msg,type='success')=>{
   setTimeout(()=>toast.value.show=false,3000)
 }
 
-// ================= NOTIFIKASI NATIVE =================
-let notificationInterval = null
 const requestNotificationPermission = () => {
-  if ("Notification" in window) Notification.requestPermission()
-}
-
-const sendReminderNotification = () => {
-  if (student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
-    if (Notification.permission === "granted") {
-      new Notification("ZieSen: Belum Absen", { 
-        body: `Halo ${student.value.name}, jangan lupa absen hari ini!`, 
-        icon: '/favicon.ico',
-        tag: 'absen-reminder' // Menghindari duplikasi notif
-      })
-    }
+  if ("Notification" in window) {
+      Notification.requestPermission().then(permission => {
+          if(permission === 'granted') updateBackgroundReminder();
+      });
   }
 }
 
-// ================= GEOLOCATION =================
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371e3 
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -206,7 +166,6 @@ const checkLocation = () => {
   })
 }
 
-// ================= DATA FETCHING =================
 const fetchJadwalFromAdmin = async () => {
   try {
     const res = await axios.get(`${backendUrl}/schedules`)
@@ -235,9 +194,7 @@ const loadAttendance = async ()=>{
       student.value.gender = me.gender || ''
       student.value.status = me.status || 'Belum Absen'
       
-      if (['Hadir', 'Sakit', 'Izin'].includes(student.value.status)) {
-        stopReminderSystem();
-      }
+      updateBackgroundReminder();
 
       if(me.attendanceHistory) {
         const stats = { hadir: 0, sakit: 0, izin: 0, alfa: 0 }
@@ -257,11 +214,17 @@ const loadAttendance = async ()=>{
         if (me.status === 'Hadir' && diff > (50 * 60 * 1000)) student.value.status = 'Belum Absen'
         student.value.lastAttendance = lastTime
       }
+      
+      // Update UI Banner
+      if(student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
+          showVibrateBanner.value = true
+      } else {
+          showVibrateBanner.value = false
+      }
     }
   } catch(err){ console.log(err) }
 }
 
-// ================= SCANNER =================
 const startScan = async () => {
   if (!canAbsen.value) return showToast('Tunggu 2 jam untuk absen lagi.', 'error')
   showToast('Cek Lokasi...', 'info')
@@ -319,15 +282,14 @@ const displayStatus = computed(() => {
 
 const hariIniText = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
 
-// ================= LOGOUT =================
 const confirmLogout = () => { showLogoutConfirm.value = true }
 const executeLogout = () => { 
-  stopReminderSystem();
+  student.value.status = 'LoggedOut';
+  updateBackgroundReminder();
   localStorage.setItem('isLoggedIn', 'false')
   router.push('/login') 
 }
 
-// ================= LIFECYCLE =================
 onMounted(async () => {
   requestNotificationPermission()
   const savedNis = localStorage.getItem('studentNis')
@@ -342,35 +304,18 @@ onMounted(async () => {
 
   await Promise.all([loadAttendance(), loadGpsConfig(), fetchJadwalFromAdmin()])
   
-  if (student.value.status === 'Belum Absen') startReminderSystem();
+  // Daftarkan ke background system saat pertama kali load
+  updateBackgroundReminder();
 
   const interval = setInterval(loadAttendance, 30000) 
-  notificationInterval = setInterval(sendReminderNotification, 60000)
   
-  // Logic untuk mematikan audio jika tab tidak terlihat (Background)
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      // Jika tab ditutup/disembunyikan, matikan suara/getar runtime saat ini
-      if ('vibrate' in navigator) navigator.vibrate(0);
-      alertAudio.pause();
-    } else {
-      // Jika tab dibuka kembali, cek apakah perlu start lagi
-      if (student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
-        startReminderSystem();
-      }
-    }
-  });
-
   onUnmounted(() => { 
     clearInterval(interval); 
-    clearInterval(notificationInterval); 
-    stopReminderSystem(); 
   })
 })
 
 onUnmounted(()=> {
   stopScan();
-  stopReminderSystem();
 })
 </script>
 

@@ -2,28 +2,56 @@
 import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 
-// Fungsi untuk meminta izin notifikasi saat aplikasi pertama kali dibuka
-const requestPermission = async () => {
-  if ('Notification' in window) {
-    const permission = await Notification.requestPermission();
-    console.log('Izin Notifikasi:', permission);
+/**
+ * Fungsi untuk mengirim data terbaru ke Service Worker
+ * agar SW tahu apakah harus menggetarkan HP atau tidak saat aplikasi ditutup.
+ */
+const syncStatusToServiceWorker = () => {
+  if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+    const status = localStorage.getItem('attendance_status') || 'Belum Absen';
+    const isNotifActive = localStorage.getItem('notif_active') !== 'false';
+    const studentName = localStorage.getItem('studentName') || 'Siswa';
+
+    navigator.serviceWorker.controller.postMessage({
+      type: 'UPDATE_STATUS',
+      status: status,
+      enabled: isNotifActive,
+      name: studentName
+    });
   }
 }
 
 onMounted(() => {
-  requestPermission();
-
-  // --- REGISTRASI SERVICE WORKER ---
-  // Ini kunci agar notifikasi/getar bisa masuk meski tab di background
+  // 1. Registrasi Service Worker
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js')
-      .then(reg => {
-        console.log('ZieSen Service Worker Active:', reg.scope);
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .then((reg) => {
+        console.log('ZieSen Service Worker terdaftar!', reg.scope);
+        
+        // Cek sinkronisasi setiap kali SW siap
+        navigator.serviceWorker.ready.then(() => {
+          syncStatusToServiceWorker();
+        });
       })
-      .catch(err => {
-        console.error('SW Registration Failed:', err);
+      .catch((err) => {
+        console.error('Pendaftaran Service Worker gagal:', err);
       });
   }
+
+  // 2. Meminta izin notifikasi secara otomatis
+  if ('Notification' in window) {
+    Notification.requestPermission().then(permission => {
+      if (permission === 'granted') {
+        syncStatusToServiceWorker();
+      }
+    });
+  }
+
+  // 3. Sinkronisasi status secara berkala saat aplikasi terbuka
+  const syncInterval = setInterval(syncStatusToServiceWorker, 10000);
+
+  // Bersihkan interval jika komponen dilepas
+  return () => clearInterval(syncInterval);
 })
 </script>
 
@@ -45,7 +73,7 @@ onMounted(() => {
   background-color: transparent;
 }
 
-/* Transisi Fade */
+/* Style transisi fade */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.3s ease;
