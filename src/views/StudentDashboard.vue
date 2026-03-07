@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Html5Qrcode } from 'html5-qrcode'
 import axios from 'axios'
@@ -9,39 +9,41 @@ import siswaImg from '../Siswa.jpg'
 import senamImg from '../senam.jpg'
 import bacaImg  from '../baca.jpg'
 import ekologiImg from '../ekologi.jpg'
+
 const router = useRouter()
 const backendUrl = 'https://backend-complited.vercel.app'
 
 // ================= STATE SISWA & UI =================
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null })
+const attendanceStats = ref({ hadir: 0, sakit: 0, izin: 0, alfa: 0 }) 
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
 const showGuide = ref(false) 
 const profileVisible = ref(false) 
 const profileImage = ref(null)    
+const showLogoutConfirm = ref(false) 
 let html5QrCode = null  
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 
+// NEW STATE: NOTIFICATION TOGGLE
+const isNotificationEnabled = ref(localStorage.getItem('notif_active') !== 'false')
+
+// Watcher untuk simpan preferensi notifikasi
+watch(isNotificationEnabled, (newVal) => {
+  localStorage.setItem('notif_active', newVal)
+  if (newVal) {
+    requestNotificationPermission()
+  }
+})
+
 // Logic Quotes & Banner Slider
 const activeBannerIndex = ref(0)
 const banners = [
-  { 
-    img: siswaImg, 
-    quote: "Senin: Pendidikan adalah tiket ke masa depan. Hari esok dimiliki oleh mereka yang mempersiapkannya hari ini." 
-  },
-  { 
-    img: senamImg, 
-    quote: "Selasa: Tubuh yang sehat adalah kunci pikiran yang jernih. Jangan lupa olahraga dan tetap bugar!" 
-  },
-  { 
-    img: bacaImg, 
-    quote: "Rabu: Membaca adalah jendela dunia. Semakin banyak kamu membaca, semakin banyak hal yang kamu ketahui." 
-  },
-  { 
-    img: ekologiImg, 
-    quote: "Kamis: Cintailah alam seperti dirimu sendiri. Lingkungan yang bersih menciptakan kenyamanan dalam belajar." 
-  }
+  { img: siswaImg, quote: "Senin: Pendidikan adalah tiket ke masa depan. Hari esok dimiliki oleh mereka yang mempersiapkannya hari ini." },
+  { img: senamImg, quote: "Selasa: Tubuh yang sehat adalah kunci pikiran yang jernih. Jangan lupa olahraga dan tetap bugar!" },
+  { img: bacaImg,  quote: "Rabu: Membaca adalah jendela dunia. Semakin banyak kamu membaca, semakin banyak hal yang kamu ketahui." },
+  { img: ekologiImg, quote: "Kamis: Cintailah alam seperti dirimu sendiri. Lingkungan yang bersih menciptakan kenyamanan dalam belajar." }
 ]
 
 const onBannerScroll = (event) => {
@@ -121,6 +123,28 @@ const showToast = (msg,type='success')=>{
   setTimeout(()=>toast.value.show=false,3000)
 }
 
+// ================= LOGIC NOTIFIKASI 31 MENIT =================
+let notificationInterval = null
+
+const requestNotificationPermission = () => {
+  if ("Notification" in window && isNotificationEnabled.value) {
+    Notification.requestPermission()
+  }
+}
+
+const sendReminderNotification = () => {
+  // Cek jika siswa belum absen DAN fitur notifikasi diaktifkan oleh siswa
+  if (student.value.status === 'Belum Absen' && isNotificationEnabled.value) {
+    if (Notification.permission === "granted") {
+      new Notification("Peringatan Absensi!", {
+        body: `Halo ${student.value.name}, kamu belum melakukan absen hari ini. Yuk segera scan QR Guru!`,
+        icon: '/favicon.ico'
+      })
+    }
+    showToast("Penting: Kamu belum absen hari ini!", "error")
+  }
+}
+
 // ================= LOGIKA GEOLOCATION =================
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
   const R = 6371e3 
@@ -190,7 +214,6 @@ const startScan = async () => {
   showToast('Cek Lokasi...', 'info')
   try {
     await checkLocation()
-    
     qrVisible.value = true
     scanning = false
     await nextTick()
@@ -263,6 +286,18 @@ const loadAttendance = async ()=>{
       student.value.class = me.class
       student.value.status = me.status || 'Belum Absen'
       
+      if(me.attendanceHistory) {
+        const stats = { hadir: 0, sakit: 0, izin: 0, alfa: 0 }
+        me.attendanceHistory.forEach(h => {
+          const s = h.status.toLowerCase()
+          if(s === 'hadir') stats.hadir++
+          else if(s === 'sakit') stats.sakit++
+          else if(s === 'izin') stats.izin++
+          else if(s === 'alfa' || s === 'mangkir') stats.alfa++
+        })
+        attendanceStats.value = stats
+      }
+
       if(me.status === 'Hadir' || me.status === 'Sakit' || me.status === 'Izin') {
         const lastAttendanceTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
         const diff = new Date().getTime() - new Date(lastAttendanceTime).getTime()
@@ -296,10 +331,20 @@ const closeGuide = () => {
   localStorage.setItem('hasSeenGuide', 'true')
 }
 
-const logout = () => { localStorage.clear(); router.push('/login') }
+// ================= LOGOUT LOGIC =================
+const confirmLogout = () => {
+  showLogoutConfirm.value = true
+}
+
+const executeLogout = () => { 
+  localStorage.clear()
+  router.push('/login') 
+}
 
 // ================= LIFECYCLE =================
 onMounted(async () => {
+  requestNotificationPermission()
+
   const meta = document.createElement('meta')
   meta.name = "viewport"
   meta.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
@@ -335,7 +380,12 @@ onMounted(async () => {
   ])
 
   const interval = setInterval(loadAttendance, 30000) 
-  onUnmounted(() => clearInterval(interval))
+  notificationInterval = setInterval(sendReminderNotification, 1 * 60 * 1000)
+  
+  onUnmounted(() => {
+    clearInterval(interval)
+    clearInterval(notificationInterval)
+  })
 })
 
 onUnmounted(()=> stopScan())
@@ -354,6 +404,22 @@ onUnmounted(()=> stopScan())
   </transition>
 
   <transition name="fade">
+    <div v-if="showLogoutConfirm" class="guide-modal-overlay" style="z-index: 12000;">
+      <div class="guide-modal-content text-center p-4">
+        <div class="logout-icon-box mb-3">
+          <i class="bi bi-box-arrow-right text-danger"></i>
+        </div>
+        <h5 class="fw-bold mb-2">Yakin Ingin Keluar?</h5>
+        <p class="text-muted small mb-4">Kamu perlu login kembali menggunakan NIS untuk mengakses aplikasi ini.</p>
+        <div class="d-flex gap-2">
+          <button @click="showLogoutConfirm = false" class="btn btn-light w-100 py-2 rounded-pill fw-bold">Batal</button>
+          <button @click="executeLogout" class="btn btn-danger w-100 py-2 rounded-pill fw-bold">Keluar</button>
+        </div>
+      </div>
+    </div>
+  </transition>
+
+  <transition name="fade">
     <div v-if="showGuide" class="guide-modal-overlay">
       <div class="guide-modal-content">
         <div class="text-center mb-4">
@@ -363,7 +429,6 @@ onUnmounted(()=> stopScan())
           <h4 class="fw-bold mt-3">Halo, {{ student.name }}!</h4>
           <p class="text-muted small">Yuk, pelajari cara absen di aplikasi ini</p>
         </div>
-        
         <div class="guide-steps">
           <div class="guide-step-item">
             <div class="step-icon"><i class="bi bi-geo-alt"></i></div>
@@ -380,10 +445,7 @@ onUnmounted(()=> stopScan())
             </div>
           </div>
         </div>
-
-        <button @click="closeGuide" class="btn btn-primary-custom w-100 py-3 mt-3">
-          Saya Mengerti, Mulai!
-        </button>
+        <button @click="closeGuide" class="btn btn-primary-custom w-100 py-3 mt-3">Saya Mengerti, Mulai!</button>
       </div>
     </div>
   </transition>
@@ -396,16 +458,14 @@ onUnmounted(()=> stopScan())
           <span v-else>{{ student.name ? student.name.charAt(0).toUpperCase() : 'S' }}</span>
         </div>
         <div>
-          <h6 class="mb-0 fw-bold text-dark text-truncate" style="max-width: 150px;">
-            {{ student.name }}
-          </h6>
+          <h6 class="mb-0 fw-bold text-dark text-truncate" style="max-width: 150px;">{{ student.name }}</h6>
           <small class="text-muted">Lihat Profil <i class="bi bi-chevron-right small"></i></small>
         </div>
       </div>
-      <button @click="logout" class="btn btn-light btn-sm rounded-pill px-3 text-danger fw-bold">
+      <button @click="confirmLogout" class="btn btn-light btn-sm rounded-pill px-3 text-danger fw-bold">
         <i class="bi bi-box-arrow-right"></i>
       </button>
-      </div>
+    </div>
   </nav>
 
   <main class="container px-4 mt-4">
@@ -439,7 +499,6 @@ onUnmounted(()=> stopScan())
     </div>
 
     <h6 class="fw-bold mb-2 text-dark px-1">Jenis Kegiatan</h6>
-
     <div class="banner-container mb-4 shadow-sm">
       <div class="banner-scroll-wrapper" @scroll="onBannerScroll">
         <div v-for="(banner, index) in banners" :key="index" class="banner-slide">
@@ -512,33 +571,48 @@ onUnmounted(()=> stopScan())
       </div>
       
       <div class="profile-body p-4">
-        <div class="info-group mb-4">
-          <label class="text-muted smaller fw-bold mb-2 d-block">INFORMASI PRIBADI</label>
-          <div class="info-item shadow-sm border">
-            <div class="p-3 border-bottom d-flex justify-content-between">
-              <span class="text-muted">NIS</span>
-              <span class="fw-bold">{{ student.nis }}</span>
+        <label class="text-muted smaller fw-bold mb-2 d-block">REKAPITULASI KEHADIRAN</label>
+        <div class="row g-2 mb-4">
+          <div class="col-3"><div class="stat-card hadir"><span class="stat-val">{{ attendanceStats.hadir }}</span><span class="stat-lbl">Hadir</span></div></div>
+          <div class="col-3"><div class="stat-card sakit"><span class="stat-val">{{ attendanceStats.sakit }}</span><span class="stat-lbl">Sakit</span></div></div>
+          <div class="col-3"><div class="stat-card izin"><span class="stat-val">{{ attendanceStats.izin }}</span><span class="stat-lbl">Izin</span></div></div>
+          <div class="col-3"><div class="stat-card alfa"><span class="stat-val">{{ attendanceStats.alfa }}</span><span class="stat-lbl">Alfa</span></div></div>
+        </div>
+
+        <label class="text-muted smaller fw-bold mb-2 d-block">PENGATURAN</label>
+        <div class="info-item shadow-sm border mb-4">
+          <div class="p-3 d-flex justify-content-between align-items-center">
+            <div>
+              <span class="fw-bold d-block small">Pengingat Absen</span>
+              <small class="text-muted smaller">Terima notifikasi setiap 1 menit</small>
             </div>
-            <div class="p-3 border-bottom d-flex justify-content-between">
-              <span class="text-muted">Kelas</span>
-              <span class="fw-bold">{{ student.class }}</span>
-            </div>
-            <div class="p-3 d-flex justify-content-between">
-              <span class="text-muted">Jenis Kelamin</span>
-              <span class="fw-bold">{{ genderDetect }}</span>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" v-model="isNotificationEnabled" style="width: 2.5em; height: 1.25em;">
             </div>
           </div>
         </div>
 
-        <div class="info-group">
+        <div class="info-group mb-4">
+          <label class="text-muted smaller fw-bold mb-2 d-block">INFORMASI PRIBADI</label>
+          <div class="info-item shadow-sm border">
+            <div class="p-3 border-bottom d-flex justify-content-between"><span class="text-muted">NIS</span><span class="fw-bold">{{ student.nis }}</span></div>
+            <div class="p-3 border-bottom d-flex justify-content-between"><span class="text-muted">Kelas</span><span class="fw-bold">{{ student.class }}</span></div>
+            <div class="p-3 d-flex justify-content-between"><span class="text-muted">Jenis Kelamin</span><span class="fw-bold">{{ genderDetect }}</span></div>
+          </div>
+        </div>
+
+        <div class="info-group mb-5">
           <label class="text-muted smaller fw-bold mb-2 d-block">LOKASI SEKARANG</label>
-          <div class="info-item shadow-sm border p-3 d-flex align-items-center">
+          <div class="info-item shadow-sm border p-3 d-flex align-items-center mb-4">
             <i class="bi bi-geo-alt-fill text-danger fs-4 me-3"></i>
             <div>
               <p class="mb-0 fw-bold small">Area SMK Negeri 1 Cianjur</p>
               <p class="mb-0 text-muted smaller">Kabupaten Cianjur, Jawa Barat</p>
             </div>
           </div>
+          <button @click="confirmLogout" class="btn btn-outline-danger w-100 py-3 rounded-4 fw-bold">
+            <i class="bi bi-box-arrow-right me-2"></i> Keluar Aplikasi
+          </button>
         </div>
       </div>
     </div>
@@ -547,9 +621,7 @@ onUnmounted(()=> stopScan())
   <transition name="fade">
     <div v-if="qrVisible" class="scanner-fullscreen">
       <div class="scanner-nav p-3 d-flex justify-content-between align-items-center text-white">
-        <button @click="stopScan" class="btn btn-outline-light btn-sm rounded-pill px-3">
-          <i class="bi bi-x-lg me-1"></i> Batal
-        </button>
+        <button @click="stopScan" class="btn btn-outline-light btn-sm rounded-pill px-3"><i class="bi bi-x-lg me-1"></i> Batal</button>
         <span class="small fw-bold">ARAHKAN KE QR GURU</span>
         <div style="width: 70px"></div>
       </div>
@@ -577,14 +649,10 @@ onUnmounted(()=> stopScan())
         <div class="schedule-items">
           <div v-for="(j,i) in jadwalHariIni" :key="i" class="schedule-card-item p-3 mb-3">
             <div class="d-flex align-items-center">
-              <div class="time-box me-3">
-                <span class="fw-bold text-primary smaller">{{ j.jam }}</span>
-              </div>
+              <div class="time-box me-3"><span class="fw-bold text-primary smaller">{{ j.jam }}</span></div>
               <div>
                 <strong class="d-block text-dark small mb-1">{{ j.mapel }}</strong>
-                <div class="text-muted smaller d-flex align-items-center">
-                  <i class="bi bi-person me-1"></i> {{ j.guru }}
-                </div>
+                <div class="text-muted smaller d-flex align-items-center"><i class="bi bi-person me-1"></i> {{ j.guru }}</div>
               </div>
             </div>
           </div>
@@ -603,18 +671,19 @@ onUnmounted(()=> stopScan())
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 
-.app-container { 
-  font-family: 'Plus Jakarta Sans', sans-serif; 
-  background-color: #f8fafc; 
-  min-height: 100vh; 
-  max-width: 500px; 
-  margin: 0 auto; 
-  position: relative; 
-  overflow-x: hidden;
-  touch-action: pan-y;
-}
+.app-container { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; min-height: 100vh; max-width: 500px; margin: 0 auto; position: relative; overflow-x: hidden; touch-action: pan-y; }
 
-/* BANNER SLIDER STYLES */
+/* STATISTIK */
+.stat-card { padding: 12px 5px; border-radius: 16px; text-align: center; display: flex; flex-direction: column; transition: 0.3s; border: 1px solid rgba(0,0,0,0.05); }
+.stat-val { font-size: 1.2rem; font-weight: 800; display: block; }
+.stat-lbl { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; opacity: 0.8; }
+.hadir { background: #ecfdf5; color: #10b981; }
+.sakit { background: #eff6ff; color: #3b82f6; }
+.izin { background: #fffbeb; color: #f59e0b; }
+.alfa { background: #fef2f2; color: #ef4444; }
+
+/* COMMON UI */
+.logout-icon-box { width: 60px; height: 60px; background: #fff5f5; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto; }
 .banner-container { border-radius: 24px; overflow: hidden; position: relative; border: 1px solid #e2e8f0; background: white; }
 .banner-scroll-wrapper { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
 .banner-scroll-wrapper::-webkit-scrollbar { display: none; }
@@ -623,25 +692,15 @@ onUnmounted(()=> stopScan())
 .banner-dots { position: absolute; top: 140px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; z-index: 10; }
 .banner-dots span { width: 6px; height: 6px; background: rgba(255,255,255,0.5); border-radius: 50%; transition: 0.3s; }
 .banner-dots span.active { width: 18px; background: white; border-radius: 10px; }
-
-/* PROFIL STYLES */
 .profile-overlay { position: fixed; inset: 0; background: #f8fafc; z-index: 5000; overflow-y: auto; }
 .profile-header { background: linear-gradient(135deg, #6366f1, #4f46e5); border-radius: 0 0 40px 40px; }
 .profile-img-container { width: 120px; height: 120px; position: relative; border: 4px solid rgba(255,255,255,0.3); border-radius: 40px; }
 .profile-img-main { width: 100%; height: 100%; object-fit: cover; border-radius: 36px; background: white; }
 .btn-upload-img { position: absolute; bottom: -5px; right: -5px; background: #10b981; color: white; width: 35px; height: 35px; border-radius: 12px; display: flex; align-items: center; justify-content: center; border: 3px solid #6366f1; cursor: pointer; }
 .info-item { background: white; border-radius: 20px; overflow: hidden; }
-
-/* STUDY QUOTES CSS */
 .study-quote-bar { border-top: 1px solid #f1f5f9; min-height: 80px; display: flex; align-items: center; }
 .quote-lamp { width: 35px; height: 35px; background: #fffbeb; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .italic-quote { font-style: italic; color: #475569; line-height: 1.3; font-size: 0.75rem; }
-
-/* ANIMATIONS */
-.slide-side-enter-active, .slide-side-leave-active { transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
-.slide-side-enter-from { transform: translateX(100%); }
-.slide-side-leave-to { transform: translateX(100%); }
-
 .user-avatar-glow { width: 42px; height: 42px; background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 800; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
 .guide-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px); z-index: 11000; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .guide-modal-content { background: white; width: 100%; max-width: 400px; border-radius: 32px; padding: 30px; animation: slideUp 0.5s ease-out; }
@@ -652,24 +711,19 @@ onUnmounted(()=> stopScan())
 .step-text p { margin: 0; font-size: 0.8rem; color: #64748b; line-height: 1.4; }
 .btn-primary-custom { background: #6366f1; color: white; border: none; border-radius: 16px; font-weight: 700; transition: 0.3s; }
 .btn-primary-custom:hover { background: #4f46e5; transform: translateY(-2px); }
-
 .banner-overlay { position: absolute; inset: 0; background: linear-gradient(transparent, rgba(0,0,0,0.2)); }
-
 .mood-btn { border: 2px solid transparent; transition: 0.3s; padding: 8px; border-radius: 15px; }
 .mood-btn.active { background: #eef2ff; border-color: #6366f1; transform: scale(1.1); }
 .quote-box { background: #f8faff; border-left: 4px solid #6366f1; animation: slideDown 0.4s ease-out; }
-
 .status-card { border-radius: 28px; border: none; overflow: hidden; transition: 0.4s; }
 .status-pending { background: linear-gradient(135deg, #1e293b, #334155); }
 .status-active { background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 12px 24px rgba(16, 185, 129, 0.25) !important; }
 .pulse-dot { width: 8px; height: 8px; background: #fff; border-radius: 50%; animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.7); } 70% { box-shadow: 0 0 0 10px rgba(255,255,255,0); } 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
-
 .action-card { background: white; border-radius: 24px; border: 1px solid #f1f5f9; transition: 0.2s; }
 .scan-active { color: #6366f1; border: 1px solid #e0e7ff; }
 .disabled-card { background: #f1f5f9 !important; color: #94a3b8 !important; border: none; cursor: not-allowed; }
 .guide-num { width: 24px; height: 24px; background: #eef2ff; color: #6366f1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.75rem; flex-shrink: 0; }
-
 .scanner-fullscreen { position:fixed; inset:0; background:#000; z-index:9999; display:flex; flex-direction:column; }
 .scanner-nav { z-index: 10; background: rgba(0,0,0,0.5); }
 .scanner-body { flex:1; position:relative; overflow: hidden; }
@@ -683,7 +737,6 @@ onUnmounted(()=> stopScan())
 .b-r { bottom: 0; right: 0; border-left: none; border-top: none; border-radius: 0 0 15px 0; }
 .scan-line { position: absolute; width: 100%; height: 2px; background: #6366f1; box-shadow: 0 0 15px #6366f1; animation: moveLine 2.5s infinite linear; }
 @keyframes moveLine { 0% { top: 0% } 50% { top: 100% } 100% { top: 0% } }
-
 .sheet-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: flex-end; }
 .sheet-content { background: white; width: 100%; border-radius: 30px 30px 0 0; padding: 25px; animation: slideUp 0.4s ease-out; max-height: 80vh; overflow-y: auto; }
 .sheet-handle { width: 40px; height: 5px; background: #e2e8f0; border-radius: 10px; margin: 0 auto 15px; }
@@ -693,8 +746,13 @@ onUnmounted(()=> stopScan())
 .custom-toast.error { background: #ef4444; }
 .custom-toast.info { background: #6366f1; }
 .smaller { font-size: 0.8rem; }
-.fade-enter-active, .fade-enter-active { transition: opacity 0.3s; }
+
+/* TRANSITIONS */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+.slide-side-enter-active, .slide-side-leave-active { transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+.slide-side-enter-from { transform: translateX(100%); }
+.slide-side-leave-to { transform: translateX(100%); }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-@keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes slideDown { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 </style>
