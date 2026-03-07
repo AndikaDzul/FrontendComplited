@@ -13,7 +13,7 @@ const students = ref([])
 const searchQuery = ref('')
 const showHistoryFor = ref(null)
 const activeTab = ref('hadir')
-const isRefreshing = ref(false) // State untuk loading refresh
+const isRefreshing = ref(false)
 
 // --- Filter Jurusan Lengkap ---
 const selectedClass = ref('XII RPL 2') 
@@ -40,7 +40,6 @@ let stream = null
 // ===== QR GURU =====
 const guruTokenPrefix = 'ABSENSI-GURU'
 const guruQr = ref('')
-let qrInterval = null
 const showQrModal = ref(false)
 
 // ================= DARK MODE =================
@@ -220,12 +219,12 @@ const logout = () => {
   router.replace('/login')
 }
 
-// FUNGSI GENERATE QR DENGAN TOKEN DINAMIS (EXPIRE LOGIC)
+// FUNGSI GENERATE QR MANUAL
 const generateQr = async () => {
-  // Menambahkan timestamp unik agar QR lama otomatis tidak valid jika di-scan ulang
   const timestamp = Date.now()
   const qrData = `${guruTokenPrefix}-${timestamp}`
   guruQr.value = await QRCode.toDataURL(qrData)
+  if (showQrModal.value) showToast('QR Code diperbarui')
 }
 
 const toggleHistory = (nis) => {
@@ -274,19 +273,11 @@ onMounted(async () => {
 
   user.value.name = localStorage.getItem('teacherName') || 'Guru'
   await loadStudents()
-  
-  // Inisialisasi QR Pertama
   await generateQr()
-  
-  // Set interval untuk mengganti QR setiap 20 detik
-  qrInterval = setInterval(async () => {
-    await generateQr()
-  }, 20000)
 })
 
 onUnmounted(() => {
   document.removeEventListener('touchmove', preventZoom)
-  if (qrInterval) clearInterval(qrInterval)
   stopCamera()
 })
 </script>
@@ -464,9 +455,13 @@ onUnmounted(() => {
         </div>
         <div class="qr-display-area zoom-qr shadow-lg">
           <img :key="guruQr" :src="guruQr" class="img-fluid rounded-3 qr-main-img" alt="QR Code" />
-          <div class="qr-progress-bar"><div class="bar-fill"></div></div>
         </div>
-        <button @click="showQrModal=false" class="btn btn-dark w-100 rounded-pill py-3 mt-4 fw-bold shadow">Tutup</button>
+        <div class="d-flex gap-2 mt-4">
+          <button @click="generateQr" class="btn btn-outline-primary flex-grow-1 rounded-pill py-3 fw-bold">
+            <i class="bi bi-arrow-repeat me-1"></i> Ganti QR
+          </button>
+          <button @click="showQrModal=false" class="btn btn-dark flex-grow-1 rounded-pill py-3 fw-bold shadow">Tutup</button>
+        </div>
       </div>
     </div>
   </Transition>
@@ -604,8 +599,6 @@ onUnmounted(() => {
 .drag-handle { width: 40px; height: 5px; background: #e2e8f0; border-radius: 5px; margin: 0 auto; }
 
 .qr-display-area { background: white; padding: 25px; border-radius: 24px; text-align: center; }
-.qr-progress-bar { height: 4px; background: #f1f5f9; border-radius: 2px; margin-top: 20px; overflow: hidden; }
-.bar-fill { height: 100%; background: #6366f1; width: 100%; animation: qrTimer 20s linear infinite; }
 
 .btn-reset-data { width: 100%; border: 1.5px dashed #ef4444; color: #ef4444; background: transparent; border-radius: 15px; padding: 12px; font-weight: 700; font-size: 0.8rem; }
 
@@ -618,7 +611,6 @@ onUnmounted(() => {
 
 @keyframes blinker { 50% { opacity: 0; } }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
-@keyframes qrTimer { from { width: 100%; } to { width: 0%; } }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 .smaller { font-size: 0.7rem; }
 .fw-black { font-weight: 900; }
