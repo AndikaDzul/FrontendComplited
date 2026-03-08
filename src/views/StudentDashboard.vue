@@ -32,7 +32,7 @@ const qrVisible = ref(false)
 const scheduleVisible = ref(false)
 const showGuide = ref(false) 
 const profileVisible = ref(false) 
-const profileImage = ref(null)    
+const profileImage = ref(null)     
 const showLogoutConfirm = ref(false) 
 const showVibrateBanner = ref(false) 
 const isSendingEmail = ref(false)
@@ -42,33 +42,43 @@ const guruTokenPrefix = 'ABSENSI-GURU-'
 
 const isNotificationEnabled = ref(localStorage.getItem('notif_active') !== 'false')
 
-// ================= LOGIKA KIRIM BUKTI (FIXED FOR APK) =================
+// ================= LOGIKA KIRIM BUKTI (WHATSAPP REDIRECT) =================
 const isUploading = ref(false)
 
 const handleSendEvidenceDirect = () => {
-  const driveFolderUrl = 'https://drive.google.com/drive/folders/1HodwvYQ6k4mamvY5kOuFjr8ZPhqhYTkj?usp=sharing'
+  const phoneNumber = '6281322233928' // Format internasional tanpa '+'
+  const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  const dateStr = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  // Membuat template pesan otomatis
+  const message = `Halo Admin, saya ingin melaporkan kehadiran:%0A%0A` +
+                  `*Nama:* ${student.value.name}%0A` +
+                  `*NIS:* ${student.value.nis}%0A` +
+                  `*Kelas:* ${student.value.class}%0A` +
+                  `*Status:* ${student.value.status}%0A` +
+                  `*Waktu:* ${timeStr} WIB%0A` +
+                  `*Tanggal:* ${dateStr}%0A%0A` +
+                  `Berikut saya lampirkan bukti foto kehadiran saya. Terima kasih.`;
+
+  const waUrl = `https://wa.me/${phoneNumber}?text=${message}`;
   
-  showToast('Membuka Browser Sistem...', 'info')
+  showToast('Membuka WhatsApp...', 'info')
   isUploading.value = true 
   
   setTimeout(() => {
-    // Perbaikan untuk APK: Menggunakan elemen <a> tersembunyi untuk memaksa sistem membuka browser
+    // Membuka WhatsApp di tab baru atau aplikasi WA
     const link = document.createElement('a');
-    link.href = driveFolderUrl;
-    link.target = '_blank'; // Untuk Web
+    link.href = waUrl;
+    link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    
-    // Atribut khusus untuk beberapa wrapper APK agar membuka di browser eksternal
-    link.setAttribute('data-rel', 'external'); 
-    
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    // Fallback jika click() tidak merespon
+    // Fallback
     setTimeout(() => {
       if (isUploading.value) {
-        window.location.assign(driveFolderUrl);
+        window.location.assign(waUrl);
       }
     }, 500);
   }, 800)
@@ -521,9 +531,9 @@ onUnmounted(()=> {
     <div class="row mb-4">
       <div class="col-12">
         <button class="action-card btn btn-white w-100 py-4 shadow-sm border-0 d-flex flex-column align-items-center justify-content-center" @click="handleSendEvidenceDirect">
-          <i class="bi bi-cloud-arrow-up-fill d-block mb-2 fs-2 text-success"></i>
-          <span class="fw-bold small">UPLOAD FOTO KE DRIVE</span>
-          <small class="text-muted mt-1" style="font-size: 10px;">Klik untuk membuka Browser Utama</small>
+          <i class="bi bi-whatsapp d-block mb-2 fs-2 text-success"></i>
+          <span class="fw-bold small">LAPORKAN KE WHATSAPP</span>
+          <small class="text-muted mt-1" style="font-size: 10px;">Kirim bukti kehadiran langsung ke Admin</small>
         </button>
       </div>
     </div>
