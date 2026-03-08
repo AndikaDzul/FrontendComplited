@@ -81,6 +81,7 @@ const handleVisibilityChange = () => {
 let reminderInterval = null;
 
 const playReminderFeedback = () => {
+  // Cek jika fitur dimatikan ATAU sudah absen, maka jangan bunyikan apapun
   if (!isNotificationEnabled.value || student.value.status !== 'Belum Absen') {
     stopReminderSystem();
     return;
@@ -98,7 +99,7 @@ const playReminderFeedback = () => {
 };
 
 const startReminderSystem = () => {
-  stopReminderSystem(); 
+  stopReminderSystem(); // Bersihkan yang lama dulu
   
   if (isNotificationEnabled.value && student.value.status === 'Belum Absen') {
     showVibrateBanner.value = true;
@@ -116,6 +117,7 @@ const stopReminderSystem = () => {
     clearInterval(reminderInterval);
     reminderInterval = null;
   }
+  // Matikan getaran secara paksa
   if ('vibrate' in navigator) navigator.vibrate(0); 
   showVibrateBanner.value = false;
   updateBackgroundReminder();
@@ -144,7 +146,9 @@ watch(isNotificationEnabled, (newVal) => {
   localStorage.setItem('notif_active', newVal)
   if (newVal) {
     requestNotificationPermission();
-    startReminderSystem();
+    if (student.value.status === 'Belum Absen') {
+      startReminderSystem();
+    }
   } else {
     stopReminderSystem();
   }
@@ -257,20 +261,17 @@ const checkLocation = () => {
   })
 }
 
-// ================= DATA FETCHING (LOGIKA JADWAL DIPERKUAT) =================
+// ================= DATA FETCHING =================
 const fetchJadwalFromAdmin = async () => {
   try {
     const res = await axios.get(`${backendUrl}/schedules`)
     if (res.data && student.value.class) {
-      // Normalisasi nama kelas: hapus spasi & jadikan uppercase (Contoh: "XII RPL 1" -> "XIIRPL1")
       const studentClassNormal = student.value.class.replace(/\s+/g, '').toUpperCase().trim()
       const todayText = hariIniText.value.toLowerCase()
 
       const filtered = res.data.filter(j => {
         const dbDay = j.hari.toLowerCase()
         const dbClass = j.kelas.replace(/\s+/g, '').toUpperCase().trim()
-        
-        // Cek kecocokan hari DAN apakah kelas siswa ada dalam daftar kelas jadwal
         return dbDay === todayText && (studentClassNormal.includes(dbClass) || dbClass.includes(studentClassNormal))
       })
       
@@ -311,10 +312,12 @@ const loadAttendance = async ()=>{
       if(['Hadir', 'Sakit', 'Izin'].includes(me.status)) {
         const lastTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
         const diff = new Date().getTime() - new Date(lastTime).getTime()
+        // Reset status ke "Belum Absen" jika sudah lewat 50 menit dari absen terakhir (untuk sesi mapel berikutnya)
         if (me.status === 'Hadir' && diff > (50 * 60 * 1000)) student.value.status = 'Belum Absen'
         student.value.lastAttendance = lastTime
       }
       
+      // Kontrol Pengingat Berdasarkan Status Terbaru
       if (student.value.status === 'Belum Absen') {
         startReminderSystem();
       } else {
@@ -357,10 +360,12 @@ const submitAttendance = async(token)=>{
       status: 'Hadir', qrToken: token, mapel: currentMapel, timestamp: now.toISOString() 
     })
     
+    // UPDATE LOKAL & MATIKAN PENGINGAT SEGERA
     student.value.status = 'Hadir'
     student.value.lastAttendance = now.toISOString()
     stopReminderSystem(); 
     playSuccessFeedback(); 
+
     showToast('Absensi Berhasil!')
     setTimeout(() => { stopScan(); loadAttendance() }, 800)
   } catch(err){ showToast('Gagal mengirim data','error'); scanning = false }
@@ -402,7 +407,6 @@ onMounted(async () => {
   const savedImg = localStorage.getItem(`profile_img_${savedNis}`)
   if(savedImg) profileImage.value = savedImg
 
-  // URUTAN PENTING: Load attendance dulu biar dapet data student.class, baru load jadwal
   await loadAttendance()
   await Promise.all([loadGpsConfig(), fetchJadwalFromAdmin()])
   
@@ -529,7 +533,7 @@ onUnmounted(()=> {
     <div class="row mb-4">
       <div class="col-12">
         <button class="action-card btn btn-white w-100 py-4 shadow-sm border-0 d-flex flex-column align-items-center justify-content-center" @click="handleSendEvidenceDirect">
-          <i class="bi bi-whatsapp d-block mb-2 fs-2 text-success"></i>
+          <i class="bi bi-whatsapp d-block mb-2 text-success"></i>
           <span class="fw-bold small">LAPORKAN KEHADIRAN</span>
           <small class="text-muted mt-1" style="font-size: 10px;">Kirim bukti kehadiran langsung ke Guru opsional</small>
         </button>
