@@ -373,7 +373,7 @@ const submitAttendance = async(token)=>{
 
 const canAbsen = computed(() => {
   if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
-  return (new Date().getTime() - new Date(student.value.lastAttendance).getTime()) > (2 * 60 * 60 * 1000)
+  return (new Date().getTime() - new Date(student.value.lastAttendance).getTime()) > (1 * 60 * 60 * 1000)
 })
 
 const displayStatus = computed(() => {
