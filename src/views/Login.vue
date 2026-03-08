@@ -274,7 +274,7 @@ const handleLogin = async () => {
   letter-spacing: 4px;
   background: linear-gradient(90deg, #1e40af, #ffffff, #1e40af);
   background-size: 200% auto;
-
+  -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: shimmerText 2s linear infinite;
 }
