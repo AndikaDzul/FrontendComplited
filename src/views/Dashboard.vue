@@ -184,7 +184,6 @@ const loadStudents = async (isManual = false) => {
       const latestRecord = isPresentToday ? todayHistory[todayHistory.length - 1] : null
       const currentStatus = latestRecord ? latestRecord.status : null
       
-      // LOGIC DRIVE: Cek apakah path berisi link drive atau path server lokal
       let finalEvidenceUrl = null;
       let isDriveLink = false;
 
@@ -201,7 +200,7 @@ const loadStudents = async (isManual = false) => {
         ...s,
         status: currentStatus,
         evidenceUrl: finalEvidenceUrl,
-        isDriveLink: isDriveLink, // Flag untuk UI
+        isDriveLink: isDriveLink, 
         attendanceHistory: todayHistory.map(h => {
           const d = new Date(h.timestamp)
           return {
@@ -399,8 +398,8 @@ onUnmounted(() => {
       <div class="p-3 border-bottom">
         <div class="d-flex align-items-center justify-content-between mb-3">
             <div class="tab-pill-container flex-grow-1 me-2">
-                <button @click="activeTab = 'hadir'" :class="{ active: activeTab === 'hadir' }">Terdata</button>
-                <button @click="activeTab = 'belum'" :class="{ active: activeTab === 'belum' }">Belum</button>
+                <button @click="activeTab = 'hadir'" :class="{ active: activeTab === 'hadir' }">Kehadiran Siswa</button>
+                <button @click="activeTab = 'belum'" :class="{ active: activeTab === 'belum' }">Siswa Belum Hadir</button>
                 <button @click="activeTab = 'semua'" :class="{ active: activeTab === 'semua' }">Semua</button>
             </div>
             <button @click="loadStudents(true)" class="btn-refresh" :class="{ spinning: isRefreshing }">
@@ -430,8 +429,8 @@ onUnmounted(() => {
                   s.status?.toLowerCase() === 'izin' ? 'tag-izin' :
                   s.status?.toLowerCase() === 'sakit' ? 'tag-sakit' :
                   s.status?.toLowerCase() === 'alfa' ? 'tag-alfa' : 'tag-pending']">
-                  <i :class="s.status ? 'bi bi-check-circle-fill' : 'bi bi-clock'"></i>
-                  {{ s.status || 'Belum Absen' }}
+                  <i :class="s.status ? 'bi bi-whatsapp' : 'bi bi-clock'"></i>
+                  {{ s.status ? 'Foto Kehadiran Terkirim' : 'Belum Absen' }}
                 </span>
                 <span v-if="s.isDriveLink" class="badge bg-success-subtle text-success smaller p-1" style="font-size: 0.55rem;">
                    <i class="bi bi-google"></i> Foto Terkirim (Drive)
@@ -454,17 +453,17 @@ onUnmounted(() => {
             <div v-if="s.status" class="mt-2 pt-2 border-top-dashed d-flex flex-column gap-2">
                 <button @click="toggleHistory(s.nis)" class="btn-detail text-start">
                   <i class="bi bi-eye-fill me-1"></i>
-                  {{ showHistoryFor === s.nis ? 'Sembunyikan Detail' : (s.isDriveLink ? 'Lihat Waktu & Link Google Drive' : 'Lihat Waktu & Bukti Foto') }}
+                  {{ showHistoryFor === s.nis ? 'Sembunyikan Detail' : (s.isDriveLink ? 'Lihat Waktu & Link Google Drive' : 'Lihat Waktu & Bukti Whatsapp') }}
                 </button>
                 
                 <div v-if="showHistoryFor === s.nis" class="detail-expanded p-2 bg-light rounded-3 border">
                   <div v-for="(h, idx) in s.attendanceHistory" :key="idx" class="text-primary smaller mb-2">
                     <i class="bi bi-stopwatch me-1"></i>
-                    {{ h.day }} • {{ h.time }} <span class="text-muted">({{ h.status || 'Hadir' }})</span>
+                    {{ h.day }} • {{ h.time }} <span class="text-muted">(Diterima via WA)</span>
                   </div>
 
                   <div v-if="s.evidenceUrl" class="mt-2">
-                    <label class="smaller fw-bold text-muted d-block mb-1">BUKTI FOTO:</label>
+                    <label class="smaller fw-bold text-muted d-block mb-1">BUKTI KEHADIRAN:</label>
                     
                     <div v-if="s.isDriveLink">
                        <a :href="s.evidenceUrl" target="_blank" class="btn btn-primary w-100 py-2 rounded-3 fw-bold smaller">
@@ -480,7 +479,7 @@ onUnmounted(() => {
                   </div>
                   
                   <div v-else class="text-danger smaller py-2 text-center bg-white rounded border">
-                    <i class="bi bi-image-fill me-1"></i> Siswa belum mengunggah foto.
+                    <i class="bi bi-image-fill me-1"></i> Siswa belum mengirimkan foto ke WhatsApp.
                   </div>
                 </div>
             </div>

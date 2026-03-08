@@ -46,12 +46,11 @@ const isNotificationEnabled = ref(localStorage.getItem('notif_active') !== 'fals
 const isUploading = ref(false)
 
 const handleSendEvidenceDirect = () => {
-  const phoneNumber = '6281322233928' // Format internasional tanpa '+'
+  const phoneNumber = '6281322233928' 
   const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   const dateStr = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  // Membuat template pesan otomatis
-  const message = `Halo Admin, saya ingin melaporkan kehadiran:%0A%0A` +
+  const message = `Halo Bapak Ibu , saya ingin melaporkan kehadiran:%0A%0A` +
                   `*Nama:* ${student.value.name}%0A` +
                   `*NIS:* ${student.value.nis}%0A` +
                   `*Kelas:* ${student.value.class}%0A` +
@@ -65,24 +64,20 @@ const handleSendEvidenceDirect = () => {
   showToast('Membuka WhatsApp...', 'info')
   isUploading.value = true 
   
-  // Membuka WhatsApp
   setTimeout(() => {
     window.open(waUrl, '_blank');
   }, 800)
 }
 
-// Handler untuk mendeteksi saat user kembali ke aplikasi (Tab/App Focus)
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible' && isUploading.value) {
-    // Reset status uploading agar kembali ke tampilan normal
     isUploading.value = false;
     showToast('Kembali ke Absensi', 'success');
-    // Memastikan status terbaru dimuat ulang
     loadAttendance();
   }
 }
 
-// ================= LOGIKA GETAR & SUARA (ALARM MODE) =================
+// ================= LOGIKA GETAR & SUARA =================
 let reminderInterval = null;
 
 const playReminderFeedback = () => {
@@ -93,9 +88,7 @@ const playReminderFeedback = () => {
 
   const audio = new Audio('https://raw.githubusercontent.com/freeCodeCamp/cdn/master/build/testable-projects-fcc/audio/BeepSound.wav');
   audio.volume = 1.0; 
-  audio.play().catch(() => {
-    console.log("Autoplay diblokir browser.");
-  });
+  audio.play().catch(() => {});
 
   if ('vibrate' in navigator) {
     navigator.vibrate([500, 200, 500, 200, 500, 200, 500]);
@@ -104,12 +97,10 @@ const playReminderFeedback = () => {
 
 const startReminderSystem = () => {
   stopReminderSystem(); 
-  
   if (isNotificationEnabled.value && student.value.status === 'Belum Absen') {
     showVibrateBanner.value = true;
     updateBackgroundReminder();
     playReminderFeedback();
-    
     reminderInterval = setInterval(() => {
       playReminderFeedback();
     }, 8000);
@@ -126,7 +117,6 @@ const stopReminderSystem = () => {
   updateBackgroundReminder();
 };
 
-// ================= LOGIKA PENGINGAT (BACKGROUND SYSTEM) =================
 const updateBackgroundReminder = () => {
   if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
     navigator.serviceWorker.controller.postMessage({
@@ -135,36 +125,15 @@ const updateBackgroundReminder = () => {
       enabled: isNotificationEnabled.value,
       name: student.value.name
     });
-
-    if (isNotificationEnabled.value && student.value.status === 'Belum Absen') {
-        navigator.serviceWorker.controller.postMessage({
-            type: 'SHOW_NOTIF',
-            enabled: true,
-            name: student.value.name
-        });
-    }
   }
 }
 
 watch(isNotificationEnabled, (newVal) => {
   localStorage.setItem('notif_active', newVal)
-  if (newVal) {
-    requestNotificationPermission();
-    startReminderSystem();
-  } else {
-    stopReminderSystem();
-  }
+  if (newVal) startReminderSystem();
+  else stopReminderSystem();
 })
 
-watch(() => student.value.status, (newStatus) => {
-  if (newStatus === 'Belum Absen') {
-    startReminderSystem();
-  } else {
-    stopReminderSystem();
-  }
-});
-
-// Banner Slider Logic
 const activeBannerIndex = ref(0)
 const banners = [
   { img: smkzieImg, quote: "Senin: Pendidikan adalah tiket ke masa depan. Hari esok dimiliki oleh mereka yang mempersiapkannya hari ini." },
@@ -180,7 +149,6 @@ const onBannerScroll = (event) => {
   activeBannerIndex.value = Math.round(scrollPosition / width)
 }
 
-// Mood Logic
 const selectedMood = ref(null)
 const moodQuote = ref('')
 const moods = [
@@ -231,14 +199,6 @@ const toast = ref({ show:false, msg:'', type:'success' })
 const showToast = (msg,type='success')=>{
   toast.value = { show:true, msg, type }
   setTimeout(()=>toast.value.show=false,3000)
-}
-
-const requestNotificationPermission = () => {
-  if ("Notification" in window) {
-      Notification.requestPermission().then(permission => {
-          if(permission === 'granted') updateBackgroundReminder();
-      });
-  }
 }
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
@@ -305,16 +265,11 @@ const loadAttendance = async ()=>{
 
       if(['Hadir', 'Sakit', 'Izin'].includes(me.status)) {
         const lastTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
-        const diff = new Date().getTime() - new Date(lastTime).getTime()
-        if (me.status === 'Hadir' && diff > (50 * 60 * 1000)) student.value.status = 'Belum Absen'
         student.value.lastAttendance = lastTime
       }
       
-      if (student.value.status === 'Belum Absen') {
-        startReminderSystem();
-      } else {
-        stopReminderSystem();
-      }
+      if (student.value.status === 'Belum Absen') startReminderSystem();
+      else stopReminderSystem();
     }
   } catch(err){ console.log(err) }
 }
@@ -380,25 +335,33 @@ const executeLogout = () => {
   student.value.status = 'LoggedOut';
   stopReminderSystem();
   localStorage.setItem('isLoggedIn', 'false')
-  router.push('/login') 
+  router.replace('/login') 
 }
 
+// ================= PERBAIKAN REFRESH =================
 onMounted(async () => {
-  // Tambah event listener untuk deteksi saat kembali dari WA
-  document.addEventListener('visibilitychange', handleVisibilityChange);
-  
-  requestNotificationPermission()
-  loadCompressionLibrary(); 
+  // 1. Cek Autentikasi dulu
+  const isLoggedIn = localStorage.getItem('isLoggedIn')
   const savedNis = localStorage.getItem('studentNis')
-  if (!savedNis || savedNis === 'undefined') { router.replace('/login'); return }
-  if (!localStorage.getItem('hasSeenGuide')) showGuide.value = true
 
+  if (isLoggedIn !== 'true' || !savedNis || savedNis === 'undefined') {
+    router.replace('/login')
+    return
+  }
+
+  // 2. Load Data Awal dari LocalStorage agar tampilan tidak kosong saat refresh
   student.value.nis = savedNis
   student.value.name = localStorage.getItem('studentName') || 'Siswa'
   student.value.class = localStorage.getItem('studentClass') || '-'
+  
   const savedImg = localStorage.getItem(`profile_img_${savedNis}`)
   if(savedImg) profileImage.value = savedImg
+  if (!localStorage.getItem('hasSeenGuide')) showGuide.value = true
 
+  // 3. Setup UI & Data Background
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  loadCompressionLibrary(); 
+  
   await Promise.all([loadAttendance(), loadGpsConfig(), fetchJadwalFromAdmin()])
   
   const interval = setInterval(loadAttendance, 30000) 
@@ -413,7 +376,6 @@ onMounted(async () => {
 onUnmounted(()=> {
   stopScan();
   stopReminderSystem();
-  document.removeEventListener('visibilitychange', handleVisibilityChange);
 })
 </script>
 
@@ -525,8 +487,8 @@ onUnmounted(()=> {
       <div class="col-12">
         <button class="action-card btn btn-white w-100 py-4 shadow-sm border-0 d-flex flex-column align-items-center justify-content-center" @click="handleSendEvidenceDirect">
           <i class="bi bi-whatsapp d-block mb-2 fs-2 text-success"></i>
-          <span class="fw-bold small">LAPORKAN KE WHATSAPP</span>
-          <small class="text-muted mt-1" style="font-size: 10px;">Kirim bukti kehadiran langsung ke Admin</small>
+          <span class="fw-bold small">LAPORKAN KEHADIRAN</span>
+          <small class="text-muted mt-1" style="font-size: 10px;">Kirim bukti kehadiran langsung ke Guru opsional</small>
         </button>
       </div>
     </div>

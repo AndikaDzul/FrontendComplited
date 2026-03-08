@@ -60,7 +60,6 @@
           <label><i class="bi bi-lock"></i> Kata Sandi</label>
           <div class="input-wrapper">
             <input v-model="password" type="password" placeholder="••••••••" required />
-            <i class="bi bi-eye-slash password-toggle"></i>
           </div>
         </div>
 
@@ -113,7 +112,28 @@ const role = ref('siswa')
 const error = ref('')
 const loading = ref(false)
 
+// 1. CEK LOGIN SECEPAT MUNGKIN (Instant Check)
+const checkAuth = () => {
+  const isLoggedIn = localStorage.getItem('isLoggedIn')
+  const savedRole = localStorage.getItem('role')
+  
+  if (isLoggedIn === 'true' && savedRole) {
+    loading.value = true
+    // Langsung arahkan tanpa menunggu 1.5 detik jika memungkinkan
+    // setTimeout hanya untuk pemanis loading
+    setTimeout(() => {
+      if (savedRole === 'siswa') router.replace('/student-dashboard')
+      else if (savedRole === 'guru') router.push('/dashboard')
+      else if (savedRole === 'admin') router.push('/admin-dashboard')
+      loading.value = false
+    }, 1000)
+  }
+}
+
 onMounted(() => {
+  // Jalankan cek auth saat mount
+  checkAuth()
+
   document.addEventListener('wheel', (e) => {
     if (e.ctrlKey) e.preventDefault();
   }, { passive: false });
@@ -126,17 +146,6 @@ onMounted(() => {
     username.value = savedUser
     password.value = savedPass
     if (savedRole) role.value = savedRole
-  }
-
-  const isLoggedIn = localStorage.getItem('isLoggedIn')
-  if (isLoggedIn === 'true' && savedRole) {
-    loading.value = true
-    setTimeout(() => {
-      if (savedRole === 'siswa') router.replace('/student-dashboard')
-      else if (savedRole === 'guru') router.replace('/dashboard')
-      else if (savedRole === 'admin') router.replace('/admin-dashboard')
-      loading.value = false
-    }, 1500); // Memberi waktu efek loading terlihat
   }
 })
 
@@ -204,7 +213,6 @@ const handleLogin = async () => {
   touch-action: pan-x pan-y;
 }
 
-/* Premium Loader Styles */
 .premium-loader {
   position: fixed;
   inset: 0;
@@ -302,7 +310,6 @@ const handleLogin = async () => {
 
 .status-text { color: #94a3b8; font-size: 0.85rem; font-weight: 500; }
 
-/* Existing Styles */
 .bg-decoration { position: absolute; width: 100%; height: 100%; z-index: 0; }
 .blob { position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.4; }
 .blob-1 { width: 400px; height: 400px; background: #3b82f6; top: -100px; right: -50px; }
@@ -335,8 +342,6 @@ const handleLogin = async () => {
 .input-wrapper { position: relative; display: flex; align-items: center; }
 .input-wrapper input { width: 100%; padding: 15px 18px; border-radius: 16px; background: #f8fafc; border: 2px solid #f1f5f9; color: #0f172a; font-size: 16px; transition: 0.3s; }
 .input-wrapper input:focus { outline: none; border-color: #3b82f6; background: #ffffff; }
-
-.password-toggle { position: absolute; right: 18px; color: #94a3b8; font-size: 1.1rem; cursor: pointer; }
 
 .btn-primary { width: 100%; padding: 16px; border-radius: 18px; border: none; background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: white; font-weight: 800; font-size: 0.95rem; cursor: pointer; transition: 0.3s; }
 .btn-primary:active { transform: scale(0.98); }
