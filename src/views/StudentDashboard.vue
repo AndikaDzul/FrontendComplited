@@ -45,7 +45,7 @@ const isNotificationEnabled = ref(localStorage.getItem('notif_active') !== 'fals
 // ================= LOGIKA KIRIM BUKTI (DIRECT TO DRIVE) =================
 // Disederhanakan sesuai permintaan: Langsung buka link tanpa selfie/upload local
 const handleSendEvidenceDirect = () => {
-  const driveFolderUrl = 'https://drive.google.com/drive/folders/1HodwvYQ6k4mamvY5kOuFjr8ZPhqhYTkj'
+  const driveFolderUrl = 'https://drive.google.com/drive/folders/1HodwvYQ6k4mamvY5kOuFjr8ZPhqhYTkj?usp=sharing'
   
   showToast('Mengalihkan ke Google Drive...', 'info')
   
