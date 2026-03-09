@@ -23,7 +23,7 @@ import KamisImg from '../Kamis.jpg'
 import jumatImg from '../jumat.jpg'
 
 const router = useRouter()
-const backendUrl = 'https://backend-complited.vercel.app'
+const backendUrl = 'https://project-backend-beres.vercel.app/api'
 
 // ================= STATE SISWA & UI =================
 const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null, gender: '' })

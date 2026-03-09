@@ -88,7 +88,14 @@
             </div>
           </div>
 
-          <h3 class="section-label mb-3">Monitoring Per Jurusan</h3>
+          <div class="section-header-flex mb-3">
+            <h3 class="section-label">Monitoring Per Jurusan</h3>
+            <select v-model="filterDashboardTingkat" class="formal-select-sm">
+              <option value="">Semua Tingkat</option>
+              <option v-for="l in tingkatList" :key="l" :value="l">{{ l }}</option>
+            </select>
+          </div>
+
           <div class="jurusan-grid">
             <div class="card jurusan-card shadow-sm" v-for="j in jurusanList" :key="j">
               <div class="jurusan-header">
@@ -116,24 +123,24 @@
               </div>
               
               <div class="jurusan-footer">
-                <small>Total Siswa: {{ siswa.filter(s => s.class.includes(j)).length }}</small>
+                <small>Total Siswa: {{ siswa.filter(s => s.class.includes(j) && (filterDashboardTingkat ? s.class.startsWith(filterDashboardTingkat) : true)).length }}</small>
               </div>
             </div>
           </div>
 
           <div class="card stat-card gps-status-card mt-4 shadow-sm" @click="openGpsMenu" style="cursor: pointer; border-left: 5px solid #3b82f6;">
-              <div :class="['stat-icon', configGps.lat ? 'green' : 'red']">
-                <i class="bi bi-pin-map-fill"></i>
-              </div>
-              <div class="info">
-                <p>Status Geofencing Absensi</p>
-                <h3 :class="configGps.lat ? 'text-green' : 'text-red'">
-                  {{ configGps.lat ? 'Sistem Geofencing Aktif' : 'Sistem Nonaktif' }}
-                  <small style="font-size: 0.8rem; display: block; color: #64748b;">Lokasi: {{ configGps.lat }}, {{ configGps.lng }} (Radius {{ configGps.radius }}m)</small>
-                </h3>
-              </div>
-              <div class="ms-auto"><i class="bi bi-chevron-right text-muted"></i></div>
+            <div :class="['stat-icon', configGps.lat ? 'green' : 'red']">
+              <i class="bi bi-pin-map-fill"></i>
             </div>
+            <div class="info">
+              <p>Status Geofencing Absensi</p>
+              <h3 :class="configGps.lat ? 'text-green' : 'text-red'">
+                {{ configGps.lat ? 'Sistem Geofencing Aktif' : 'Sistem Nonaktif' }}
+                <small style="font-size: 0.8rem; display: block; color: #64748b;">Lokasi: {{ configGps.lat }}, {{ configGps.lng }} (Radius {{ configGps.radius }}m)</small>
+              </h3>
+            </div>
+            <div class="ms-auto"><i class="bi bi-chevron-right text-muted"></i></div>
+          </div>
         </div>
 
         <div v-if="activeMenu === 'gps'" class="box fade-in">
@@ -172,14 +179,29 @@
         </div>
 
         <div v-if="activeMenu === 'siswa'" class="box fade-in">
-          <div class="section-header"><h3>Database Siswa</h3></div>
+          <div class="section-header-flex mb-3">
+            <h3>Database Siswa</h3>
+            <div style="display: flex; gap: 10px;">
+                <select v-model="filterSiswaTingkat" class="formal-select">
+                    <option value="">Semua Tingkat</option>
+                    <option v-for="l in tingkatList" :key="l" :value="l">{{ l }}</option>
+                </select>
+                <select v-model="filterSiswaJurusan" class="formal-select">
+                    <option value="">Semua Jurusan</option>
+                    <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+                </select>
+            </div>
+          </div>
           <div class="table-responsive">
             <table class="table">
               <thead><tr><th>NIS</th><th>Nama Lengkap</th><th>Kelas</th><th>Status</th><th>Aksi</th></tr></thead>
               <tbody>
-                <tr v-for="s in siswa" :key="s.nis">
+                <tr v-for="s in filteredSiswaTable" :key="s.nis">
                   <td>{{ s.nis }}</td><td class="fw-bold">{{ s.name }}</td><td>{{ s.class }}</td><td v-html="statusIcon(s.status)"></td>
                   <td><button class="btn-icon delete" @click="hapusSiswa(s.nis)"><i class="bi bi-trash3"></i></button></td>
+                </tr>
+                <tr v-if="filteredSiswaTable.length === 0">
+                    <td colspan="5" class="text-center py-4 text-muted">Data siswa tidak ditemukan.</td>
                 </tr>
               </tbody>
             </table>
@@ -295,15 +317,21 @@
         </div>
 
         <div v-if="activeMenu === 'absensi'" class="box fade-in">
-          <div class="section-header">
+          <div class="section-header-flex mb-3">
             <h3>Monitoring Absensi</h3>
-            <button class="btn btn-danger btn-sm" @click="resetAbsensi">Reset</button>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <select v-model="filterAbsensiTingkat" class="formal-select">
+                  <option value="">Semua Tingkat</option>
+                  <option v-for="l in tingkatList" :key="l" :value="l">{{ l }}</option>
+              </select>
+              <button class="btn btn-danger btn-sm" @click="resetAbsensi">Reset Hari Ini</button>
+            </div>
           </div>
           <div class="table-responsive">
             <table class="table">
               <thead><tr><th>NIS</th><th>Siswa</th><th>Kelas</th><th>Kehadiran Terakhir</th></tr></thead>
               <tbody>
-                <tr v-for="s in siswa" :key="s.nis">
+                <tr v-for="s in filteredAbsensiTable" :key="s.nis">
                   <td>{{ s.nis }}</td><td>{{ s.name }}</td><td>{{ s.class }}</td><td v-html="statusIcon(s.status)"></td>
                 </tr>
               </tbody>
@@ -314,17 +342,29 @@
         <div v-if="activeMenu === 'laporan'" class="box fade-in report-view">
           <div class="report-header-ui mb-4">
             <div class="report-title-section">
-              <h3 class="formal-title">Laporan Kehadiran Akademik</h3>
-              <p class="formal-subtitle">Data rekapitulasi kehadiran siswa secara real-time (Senin - Jumat)</p>
+              <h3 class="formal-title">LAPORAN KEHADIRAN SISWA ZIESEN</h3>
+              <p class="formal-subtitle">Rekapitulasi Kehadiran Mingguan (Senin - Jumat)</p>
             </div>
             <div class="export-controls-formal">
               <div class="filter-group-formal">
-                <label>Filter Jurusan / Kelas</label>
+                <label>Tingkat</label>
+                <select v-model="selectedExportTingkat" class="formal-select">
+                  <option value="">Semua Tingkat</option>
+                  <option v-for="l in tingkatList" :key="l" :value="l">{{ l }}</option>
+                </select>
+              </div>
+              <div class="filter-group-formal">
+                <label>Jurusan</label>
                 <select v-model="selectedExportJurusan" class="formal-select">
-                  <option value="">Semua Data</option>
-                  <optgroup label="Berdasarkan Jurusan">
-                    <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
-                  </optgroup>
+                  <option value="">Semua Jurusan</option>
+                  <option v-for="j in jurusanList" :key="j" :value="j">{{ j }}</option>
+                </select>
+              </div>
+              <div class="filter-group-formal">
+                <label>Nomor Kelas</label>
+                <select v-model="selectedExportNomor" class="formal-select">
+                  <option value="">Semua No</option>
+                  <option v-for="n in nomorKelasList" :key="n" :value="n">{{ n }}</option>
                 </select>
               </div>
               <div class="filter-group-formal">
@@ -335,7 +375,7 @@
                 </select>
               </div>
               <button class="btn-formal-export" @click="exportToExcel">
-                <i class="bi bi-printer"></i> Cetak ke Excel (XLSX)
+                <i class="bi bi-file-earmark-excel"></i> Cetak ke Excel (XLSX)
               </button>
             </div>
           </div>
@@ -367,6 +407,9 @@
                     </td>
                   </tr>
                 </template>
+                <tr v-if="filteredSiswaReport.length === 0">
+                  <td colspan="7" style="text-align: center; color: #94a3b8; padding: 40px;">Data tidak ditemukan untuk filter ini.</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -388,11 +431,23 @@ const API = 'https://backend-complited.vercel.app'
 const token = localStorage.getItem('token')
 const axiosAuth = axios.create({ baseURL: API, headers: { Authorization: `Bearer ${token}` } })
 
+// UI States
 const sidebarOpen = ref(false)
 const activeMenu = ref('dashboard')
-const selectedExportDay = ref('')
-const selectedExportJurusan = ref('') 
 
+// Local Filters States
+const filterDashboardTingkat = ref('')
+const filterSiswaTingkat = ref('')
+const filterSiswaJurusan = ref('')
+const filterAbsensiTingkat = ref('')
+
+// Report Filter States
+const selectedExportDay = ref('')
+const selectedExportTingkat = ref('')
+const selectedExportJurusan = ref('') 
+const selectedExportNomor = ref('')
+
+// Schedule Filters
 const selectedJadwalJurusan = ref('')
 const selectedJadwalTingkat = ref('')
 
@@ -417,17 +472,33 @@ const tempJadwal = ref({ level: '', jurusan: '', nomor: '' })
 
 let map = null, marker = null, circle = null
 
+// --- COMPUTED PROPERTIES ---
+
 const totalSiswa = computed(() => siswa.value.length)
 const totalSiswaHadir = computed(() => siswa.value.filter(s => s.status === 'Hadir').length)
 
-// LOGIKA DASHBOARD BARU: Hitung status per jurusan
 const getSiswaByStatus = (jurusan, status) => {
   return siswa.value.filter(s => {
     const checkStatus = (s.status || 'Alfa') === status;
     const checkJurusan = s.class.toUpperCase().includes(jurusan.toUpperCase());
-    return checkStatus && checkJurusan;
+    const checkTingkat = filterDashboardTingkat.value ? s.class.startsWith(filterDashboardTingkat.value) : true;
+    return checkStatus && checkJurusan && checkTingkat;
   }).length;
 }
+
+const filteredSiswaTable = computed(() => {
+    return siswa.value.filter(s => {
+        const matchTingkat = filterSiswaTingkat.value ? s.class.startsWith(filterSiswaTingkat.value) : true
+        const matchJurusan = filterSiswaJurusan.value ? s.class.includes(filterSiswaJurusan.value) : true
+        return matchTingkat && matchJurusan
+    })
+})
+
+const filteredAbsensiTable = computed(() => {
+    return siswa.value.filter(s => {
+        return filterAbsensiTingkat.value ? s.class.startsWith(filterAbsensiTingkat.value) : true
+    })
+})
 
 const filteredJadwalList = computed(() => {
   return jadwal.value.filter(j => {
@@ -438,9 +509,15 @@ const filteredJadwalList = computed(() => {
 })
 
 const filteredSiswaReport = computed(() => {
-  if (!selectedExportJurusan.value) return siswa.value
-  return siswa.value.filter(s => s.class.toUpperCase().includes(selectedExportJurusan.value.toUpperCase()))
+  return siswa.value.filter(s => {
+    const matchTingkat = selectedExportTingkat.value ? s.class.startsWith(selectedExportTingkat.value) : true
+    const matchJurusan = selectedExportJurusan.value ? s.class.toUpperCase().includes(selectedExportJurusan.value.toUpperCase()) : true
+    const matchNomor = selectedExportNomor.value ? s.class.endsWith(selectedExportNomor.value) : true
+    return matchTingkat && matchJurusan && matchNomor
+  })
 })
+
+// --- LOGIC FUNCTIONS ---
 
 const formatAttendanceForTable = (student) => {
   const result = []
@@ -539,6 +616,7 @@ const getCurrentLocation = () => {
 
 const saveGpsConfig = async () => { try { await axiosAuth.post('/config/gps', configGps.value); alert('Tersimpan!') } catch (err) {} }
 const loadSiswa = async () => { try { const r = await axiosAuth.get('/students'); siswa.value = r.data; } catch(e) { console.error(e) } }
+
 const tambahSiswa = async () => { 
   formSiswa.value.class = `${tempSiswa.value.level} ${tempSiswa.value.jurusan} ${tempSiswa.value.nomor}`.trim();
   if(!tempSiswa.value.level || !tempSiswa.value.jurusan) return alert("Lengkapi data kelas!");
@@ -547,11 +625,13 @@ const tambahSiswa = async () => {
   tempSiswa.value = { level: '', jurusan: '', nomor: '' };
   loadSiswa() 
 }
+
 const hapusSiswa = async (nis) => { if (confirm('Hapus?')) { await axiosAuth.delete(`/students/${nis}`); loadSiswa() } }
 const loadGuru = async () => { await axiosAuth.get('/teachers').then(r => guru.value = r.data) }
 const tambahGuru = async () => { await axiosAuth.post('/teachers', formGuru.value); formGuru.value = { name: '', email: '', mapel: '', password: '' }; loadGuru() }
 const hapusGuru = async (email) => { if (confirm('Hapus?')) { await axiosAuth.delete(`/teachers/${email}`); loadGuru() } }
 const loadJadwal = async () => { await axiosAuth.get('/schedules').then(r => jadwal.value = r.data) }
+
 const tambahJadwal = async () => { 
   formJadwal.value.kelas = `${tempJadwal.value.level} ${tempJadwal.value.jurusan} ${tempJadwal.value.nomor}`.trim();
   if(!tempJadwal.value.level || !tempJadwal.value.jurusan) return alert("Lengkapi data kelas untuk jadwal!");
@@ -560,6 +640,7 @@ const tambahJadwal = async () => {
   tempJadwal.value = { level: '', jurusan: '', nomor: '' };
   loadJadwal() 
 }
+
 const hapusJadwal = async (id) => { if (confirm('Hapus?')) { await axiosAuth.delete(`/schedules/${id}`); loadJadwal() } }
 const resetAbsensi = async () => { if(confirm("Reset semua absensi hari ini?")) { await axiosAuth.post('/students/reset'); loadSiswa(); } }
 
@@ -570,25 +651,57 @@ const statusIcon = status => {
 
 const exportToExcel = () => {
   const now = new Date()
-  const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
-  const currentDay = hariList[now.getDay()]
-  const dayName = selectedExportDay.value || (['Sabtu', 'Minggu'].includes(currentDay) ? 'Senin-Jumat' : currentDay)
-  const targetJurusan = selectedExportJurusan.value || 'Semua Data'
-  const headerInfo = [["LAPORAN KEHADIRAN SISWA ZIESEN"], ["Filter", ": " + targetJurusan], ["Hari", ": " + dayName], ["Tanggal", ": " + dateStr], ["Periode", ": " + now.toLocaleString('id-ID', { month: 'long', year: 'numeric' })], [""], ["NIS", "NAMA SISWA", "KELAS", "HARI", "MAPEL", "SESI", "STATUS"]]
+  const dateStr = now.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  
+  const targetTingkat = selectedExportTingkat.value || 'Semua'
+  const targetJurusan = selectedExportJurusan.value || 'Semua Jurusan'
+  const targetNo = selectedExportNomor.value ? ` No ${selectedExportNomor.value}` : ''
+
+  const headerInfo = [
+    ["LAPORAN KEHADIRAN SISWA ZIE SEN"],
+    ["---------------------------------------------------"],
+    ["Unit Kerja", ": SMK Negeri 1 (ZieSen System)"],
+    ["Tingkat", ": " + targetTingkat],
+    ["Filter Jurusan", ": " + targetJurusan + targetNo],
+    ["Waktu Cetak", ": " + dateStr],
+    [""],
+    ["NIS", "NAMA LENGKAP", "KELAS", "STATUS KEHADIRAN"]
+  ]
+
   const sourceData = filteredSiswaReport.value
-  const dataRows = []
-  sourceData.forEach(s => { const history = formatAttendanceForTable(s); history.forEach(h => { dataRows.push([s.nis, s.name, s.class, h.day, h.mapel, h.jam, h.status]) }) })
+  const dataRows = sourceData.map(s => {
+    return [
+      s.nis, 
+      s.name, 
+      s.class, 
+      s.status || 'Alfa'
+    ]
+  })
+
   const fullData = [...headerInfo, ...dataRows]
   const ws = XLSX.utils.aoa_to_sheet(fullData); 
   const wb = XLSX.utils.book_new()
-  ws['!cols'] = [{ wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 12 }, { wch: 20 }, { wch: 15 }, { wch: 15 }]
-  XLSX.utils.book_append_sheet(wb, ws, "Laporan Kehadiran"); 
-  XLSX.writeFile(wb, `Laporan_Absensi_${targetJurusan.replace(/ /g, '_')}_${dayName}.xlsx`)
+
+  ws['!cols'] = [
+    { wch: 15 }, // NIS
+    { wch: 40 }, // NAMA
+    { wch: 20 }, // KELAS
+    { wch: 20 }  // STATUS
+  ]
+
+  XLSX.utils.book_append_sheet(wb, ws, "Rekap_ZieSen"); 
+  XLSX.writeFile(wb, `Laporan_ZieSen_${targetTingkat}_${targetJurusan}${targetNo}.xlsx`)
 }
 
 const logout = () => { localStorage.clear(); router.push('/login') }
 
-onMounted(() => { loadSiswa(); loadGuru(); loadJadwal(); loadGpsFromServer(); setInterval(loadSiswa, 10000); })
+onMounted(() => { 
+  loadSiswa(); 
+  loadGuru(); 
+  loadJadwal(); 
+  loadGpsFromServer(); 
+  setInterval(loadSiswa, 10000); 
+})
 </script>
 
 <style scoped>
