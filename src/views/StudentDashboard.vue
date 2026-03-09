@@ -263,7 +263,7 @@ const checkLocation = () => {
       (pos) => {
         const dist = calculateDistance(pos.coords.latitude, pos.coords.longitude, schoolConfig.value.lat, schoolConfig.value.lng)
         if (dist <= schoolConfig.value.radius) resolve(true)
-        else reject(`Mohon harus di area sekolah (${Math.round(dist)}m).`)
+        else reject(`Di luar jangkauan (${Math.round(dist)}m).`)
       },
       () => reject("Gagal akses GPS."), { enableHighAccuracy: true, timeout: 6000 }
     )
@@ -423,11 +423,11 @@ const submitAttendance = async(token)=>{
 // ================= LOGIKA LOG PULANG =================
 const handleLogPulang = async () => {
   if (student.value.status === 'Pulang') {
-    showToast('Anda sudah pulang hari ini, tunggu besok pagi hari jika ingin absen kembali!.', 'info');
+    showToast('Anda sudah pulang hari ini, tunggu besok pagi hari jika ingin absen kembal.', 'info');
     return;
   }
 
-  if (!confirm('Apakah Anda sudah pulang?')) return;
+  if (!confirm('Apakah Anda yakin ingin pulang?')) return;
 
   try {
     const now = new Date().toISOString();
