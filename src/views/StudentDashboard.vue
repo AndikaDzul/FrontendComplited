@@ -26,17 +26,26 @@ const router = useRouter()
 const backendUrl = 'https://project-backend-beres.vercel.app/api'
 
 // ================= STATE SISWA & UI =================
-const student = ref({ name:'', nis:'', class:'', status:'Belum Absen', lastAttendance: null, gender: '' })
+const student = ref({ 
+  name:'', 
+  nis:'', 
+  class:'', 
+  status:'Belum Absen', 
+  lastAttendance: null, 
+  lastPulang: null, 
+  gender: '' 
+})
 const attendanceStats = ref({ hadir: 0, sakit: 0, izin: 0, alfa: 0 }) 
 const qrVisible = ref(false)
 const scheduleVisible = ref(false)
-const showGuide = ref(false) 
-const profileVisible = ref(false) 
-const profileImage = ref(null)     
+const showGuide = ref(false)  
+const profileVisible = ref(false)  
+const profileImage = ref(null)      
 const showLogoutConfirm = ref(false) 
 const showVibrateBanner = ref(false) 
 const isSendingEmail = ref(false)
-let html5QrCode = null  
+const isProcessingAbsen = ref(false) // State untuk overlay loading
+let html5QrCode = null   
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 
@@ -62,7 +71,7 @@ const handleSendEvidenceDirect = () => {
   const waUrl = `https://wa.me/${phoneNumber}?text=${message}`;
   
   showToast('Membuka WhatsApp...', 'info')
-  isUploading.value = true 
+  isUploading.value = true
   
   setTimeout(() => {
     window.open(waUrl, '_blank');
@@ -81,14 +90,13 @@ const handleVisibilityChange = () => {
 let reminderInterval = null;
 
 const playReminderFeedback = () => {
-  // Cek jika fitur dimatikan ATAU sudah absen, maka jangan bunyikan apapun
   if (!isNotificationEnabled.value || student.value.status !== 'Belum Absen') {
     stopReminderSystem();
     return;
   }
 
   const audio = new Audio('https://raw.githubusercontent.com/freeCodeCamp/cdn/master/build/testable-projects-fcc/audio/BeepSound.wav');
-  audio.volume = 1.0; 
+  audio.volume = 1.0;  
   audio.play().catch(() => {
     console.log("Autoplay diblokir browser.");
   });
@@ -99,7 +107,7 @@ const playReminderFeedback = () => {
 };
 
 const startReminderSystem = () => {
-  stopReminderSystem(); // Bersihkan yang lama dulu
+  stopReminderSystem(); 
   
   if (isNotificationEnabled.value && student.value.status === 'Belum Absen') {
     showVibrateBanner.value = true;
@@ -117,8 +125,7 @@ const stopReminderSystem = () => {
     clearInterval(reminderInterval);
     reminderInterval = null;
   }
-  // Matikan getaran secara paksa
-  if ('vibrate' in navigator) navigator.vibrate(0); 
+  if ('vibrate' in navigator) navigator.vibrate(0);  
   showVibrateBanner.value = false;
   updateBackgroundReminder();
 };
@@ -240,7 +247,7 @@ const requestNotificationPermission = () => {
 }
 
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371e3 
+  const R = 6371e3  
   const dLat = (lat2 - lat1) * Math.PI / 180
   const dLon = (lon2 - lon1) * Math.PI / 180
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2)
@@ -281,9 +288,9 @@ const fetchJadwalFromAdmin = async () => {
 }
 
 const loadGpsConfig = async () => {
-  try { 
+  try {  
     const res = await axios.get(`${backendUrl}/config/gps`)
-    if(res.data) schoolConfig.value = res.data 
+    if(res.data) schoolConfig.value = res.data  
   } catch (e) { console.log(e) }
 }
 
@@ -296,6 +303,7 @@ const loadAttendance = async ()=>{
       student.value.class = me.class
       student.value.gender = me.gender || ''
       student.value.status = me.status || 'Belum Absen'
+      student.value.lastPulang = me.lastPulang || null 
       
       if(me.attendanceHistory) {
         const stats = { hadir: 0, sakit: 0, izin: 0, alfa: 0 }
@@ -304,7 +312,7 @@ const loadAttendance = async ()=>{
           if(s === 'hadir') stats.hadir++
           else if(s === 'sakit') stats.sakit++
           else if(s === 'izin') stats.izin++
-          else stats.alfa++
+          else if(s === 'alfa') stats.alfa++
         })
         attendanceStats.value = stats
       }
@@ -312,12 +320,10 @@ const loadAttendance = async ()=>{
       if(['Hadir', 'Sakit', 'Izin'].includes(me.status)) {
         const lastTime = me.attendanceHistory?.[me.attendanceHistory.length-1]?.timestamp || me.updatedAt
         const diff = new Date().getTime() - new Date(lastTime).getTime()
-        // Reset status ke "Belum Absen" jika sudah lewat 50 menit dari absen terakhir (untuk sesi mapel berikutnya)
         if (me.status === 'Hadir' && diff > (50 * 60 * 1000)) student.value.status = 'Belum Absen'
         student.value.lastAttendance = lastTime
       }
       
-      // Kontrol Pengingat Berdasarkan Status Terbaru
       if (student.value.status === 'Belum Absen') {
         startReminderSystem();
       } else {
@@ -328,7 +334,7 @@ const loadAttendance = async ()=>{
 }
 
 const startScan = async () => {
-  if (!canAbsen.value) return showToast('Tunggu 2 jam untuk absen lagi.', 'error')
+  if (!canAbsen.value) return showToast('Tunggu 1 jam atau Anda sudah pulang.', 'error')
   showToast('Cek Lokasi...', 'info')
   try {
     await checkLocation()
@@ -339,9 +345,10 @@ const startScan = async () => {
     html5QrCode = new Html5Qrcode("qr-reader")
     await html5QrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: 250 }, async (text) => {
       if (scanning) return
-      if (text.startsWith(guruTokenPrefix)) { 
+      if (text.startsWith(guruTokenPrefix)) {  
         scanning = true
-        await submitAttendance(text) 
+        qrVisible.value = false // Tutup scanner dulu
+        await submitAttendance(text)  
       } else { showToast('QR Code tidak valid!', 'error') }
     })
   } catch (err) { showToast(err, 'error'); qrVisible.value = false }
@@ -353,52 +360,92 @@ const stopScan = async () => {
 }
 
 const submitAttendance = async(token)=>{
+  isProcessingAbsen.value = true // Aktifkan Loading
   try{
     const now = new Date()
     const currentMapel = jadwalHariIni.value.length > 0 ? jadwalHariIni.value[0].mapel : 'Pelajaran Umum'
-    await axios.post(`${backendUrl}/students/attendance/${student.value.nis}`, { 
-      status: 'Hadir', qrToken: token, mapel: currentMapel, timestamp: now.toISOString() 
+    
+    // Simulasi delay biar kelihatan loadingnya
+    await new Promise(r => setTimeout(r, 1500));
+    
+    await axios.post(`${backendUrl}/students/attendance/${student.value.nis}`, {  
+      status: 'Hadir', qrToken: token, mapel: currentMapel, timestamp: now.toISOString()  
     })
     
-    // UPDATE LOKAL & MATIKAN PENGINGAT SEGERA
     student.value.status = 'Hadir'
     student.value.lastAttendance = now.toISOString()
-    stopReminderSystem(); 
-    playSuccessFeedback(); 
+    stopReminderSystem();  
+    playSuccessFeedback();  
 
+    isProcessingAbsen.value = false // Matikan Loading
     showToast('Absensi Berhasil!')
     setTimeout(() => { stopScan(); loadAttendance() }, 800)
-  } catch(err){ showToast('Gagal mengirim data','error'); scanning = false }
+  } catch(err){ 
+    isProcessingAbsen.value = false
+    showToast('Gagal mengirim data','error'); 
+    scanning = false 
+  }
+}
+
+// ================= LOGIKA LOG PULANG =================
+const handleLogPulang = async () => {
+  if (student.value.status === 'Pulang') {
+    showToast('Anda sudah pulang hari ini.', 'info');
+    return;
+  }
+
+  if (!confirm('Apakah Anda yakin ingin pulang?')) return;
+
+  try {
+    const now = new Date();
+    await axios.post(`${backendUrl}/students/attendance/pulang/${student.value.nis}`, {
+      timestamp: now.toISOString()
+    });
+
+    student.value.status = 'Pulang';
+    student.value.lastPulang = now.toISOString();
+    stopReminderSystem();
+    
+    showToast('Log Pulang Berhasil! Hati-hati di jalan.', 'success');
+    loadAttendance(); 
+  } catch (err) {
+    console.error(err);
+    showToast('Gagal log pulang', 'error');
+  }
 }
 
 const canAbsen = computed(() => {
-  if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true
+  if (student.value.status === 'Pulang') return false;
+  if (!student.value.lastAttendance || student.value.status !== 'Hadir') return true;
   return (new Date().getTime() - new Date(student.value.lastAttendance).getTime()) > (1 * 60 * 60 * 1000)
-})
+});
 
 const displayStatus = computed(() => {
   if(student.value.status === 'Hadir' && student.value.lastAttendance){
     return `Hadir - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
   }
+  if(student.value.status === 'Pulang' && student.value.lastPulang){
+    return `Pulang - ${new Date(student.value.lastPulang).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
+  }
   return student.value.status
-})
+});
 
 const hariIniText = computed(()=> new Date().toLocaleDateString('id-ID', { weekday: 'long' }))
 
 const confirmLogout = () => { showLogoutConfirm.value = true }
-const executeLogout = () => { 
+const executeLogout = () => {  
   student.value.status = 'LoggedOut';
   stopReminderSystem();
   localStorage.setItem('isLoggedIn', 'false')
-  router.push('/login') 
+  router.push('/login')  
 }
 
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange);
   requestNotificationPermission()
-  loadCompressionLibrary(); 
+  loadCompressionLibrary();  
   const savedNis = localStorage.getItem('studentNis')
-  if (!savedNis || savedNis === 'undefined') { router.replace('/login'); return }
+  if (!savedNis || savedNis === '') { router.replace('/login'); return }
   if (!localStorage.getItem('hasSeenGuide')) showGuide.value = true
 
   student.value.nis = savedNis
@@ -410,10 +457,10 @@ onMounted(async () => {
   await loadAttendance()
   await Promise.all([loadGpsConfig(), fetchJadwalFromAdmin()])
   
-  const interval = setInterval(loadAttendance, 30000) 
-  
-  onUnmounted(() => { 
-    clearInterval(interval); 
+  const interval = setInterval(loadAttendance, 30000)  
+ 
+  onUnmounted(() => {  
+    clearInterval(interval);  
     stopReminderSystem();
     document.removeEventListener('visibilitychange', handleVisibilityChange);
   })
@@ -431,13 +478,23 @@ onUnmounted(()=> {
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
 
+  <transition name="fade">
+    <div v-if="isProcessingAbsen" class="guide-modal-overlay" style="z-index: 20000;">
+      <div class="text-center text-white">
+        <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;"></div>
+        <h5 class="fw-bold">Memproses Absensi...</h5>
+        <p class="small opacity-75">Tunggu sebentar ya!</p>
+      </div>
+    </div>
+  </transition>
+
   <transition name="slide-down">
     <div v-if="showVibrateBanner && student.status === 'Belum Absen' && isNotificationEnabled" class="vibrate-banner shadow" @click="startScan">
         <div class="d-flex align-items-center gap-3">
            <div class="vibrate-icon"><i class="bi bi-bell-fill"></i></div>
            <div class="flex-grow-1">
-             <h6 class="mb-0 fw-bold">Peringatan Absensi!</h6>
-             <small>Halo {{ student.name }}, kamu belum absen hari ini.</small>
+            <h6 class="mb-0 fw-bold">Peringatan Absensi!</h6>
+            <small>Halo {{ student.name }}, kamu belum absen hari ini.</small>
            </div>
            <div class="vibrate-action">
               <span class="badge rounded-pill bg-white text-success fw-bold">ABSEN</span>
@@ -506,7 +563,11 @@ onUnmounted(()=> {
   </nav>
 
   <main class="container px-4 mt-4">
-    <section class="status-card shadow-sm mb-4" :class="student.status === 'Hadir' ? 'status-active' : 'status-pending'">
+    <section class="status-card shadow-sm mb-4" :class="{
+      'status-active': student.status === 'Hadir',
+      'status-pulang': student.status === 'Pulang',
+      'status-pending': student.status === 'Belum Absen'
+    }">
       <div class="card-body p-4 text-white">
         <div class="d-flex justify-content-between opacity-75 small mb-2"><span>STATUS KEHADIRAN</span><i class="bi bi-shield-check"></i></div>
         <h2 class="display-6 fw-bold mb-3">{{ displayStatus }}</h2>
@@ -530,12 +591,18 @@ onUnmounted(()=> {
       </div>
     </div>
 
-    <div class="row mb-4">
-      <div class="col-12">
+    <div class="row g-3 mb-4">
+      <div class="col-6">
+        <button class="action-card btn btn-white w-100 py-4 shadow-sm" @click="handleLogPulang" :disabled="student.status === 'Pulang'">
+          <i class="bi bi-house-door d-block mb-2 fs-2 text-warning"></i>
+          <span class="fw-bold small">LOG PULANG</span>
+        </button>
+      </div>
+      <div class="col-6">
         <button class="action-card btn btn-white w-100 py-4 shadow-sm border-0 d-flex flex-column align-items-center justify-content-center" @click="handleSendEvidenceDirect">
           <i class="bi bi-whatsapp d-block mb-2 text-success"></i>
           <span class="fw-bold small">LAPORKAN KEHADIRAN</span>
-          <small class="text-muted mt-1" style="font-size: 10px;">Kirim bukti kehadiran langsung ke Guru opsional</small>
+          <small class="text-muted mt-1" style="font-size: 10px;">Opsional ke Guru</small>
         </button>
       </div>
     </div>
@@ -591,18 +658,27 @@ onUnmounted(()=> {
       </div>
       
       <div class="profile-body p-4">
-        <label class="text-muted smaller fw-bold mb-2 d-block">REKAPITULASI</label>
-        <div class="row g-2 mb-4">
+        <label class="text-muted smaller fw-bold mb-2 d-block">REKAPITULASI & BUKTI</label>
+        <div class="row g-2 mb-3">
           <div class="col-3"><div class="stat-card hadir"><span class="stat-val">{{ attendanceStats.hadir }}</span><span class="stat-lbl">Hadir</span></div></div>
           <div class="col-3"><div class="stat-card sakit"><span class="stat-val">{{ attendanceStats.sakit }}</span><span class="stat-lbl">Sakit</span></div></div>
           <div class="col-3"><div class="stat-card izin"><span class="stat-val">{{ attendanceStats.izin }}</span><span class="stat-lbl">Izin</span></div></div>
           <div class="col-3"><div class="stat-card alfa"><span class="stat-val">{{ attendanceStats.alfa }}</span><span class="stat-lbl">Alfa</span></div></div>
         </div>
 
+        <div class="info-item shadow-sm border mb-4 bg-light">
+          <div class="p-3 d-flex justify-content-between align-items-center">
+            <div><span class="fw-bold d-block small">Jam Pulang Terakhir</span><small class="text-muted smaller">Hari ini</small></div>
+            <span class="badge bg-warning text-dark fw-bold fs-6">
+              {{ student.lastPulang ? new Date(student.lastPulang).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '--:--' }}
+            </span>
+          </div>
+        </div>
+
         <label class="text-muted smaller fw-bold mb-2 d-block">PENGATURAN</label>
         <div class="info-item shadow-sm border mb-4">
           <div class="p-3 d-flex justify-content-between align-items-center">
-            <div><span class="fw-bold d-block small">Pengingat Absen</span><small class="text-muted smaller">Getar, Suara & Banner Visual</small></div>
+            <div><span class="fw-bold d-block small">Pengingat Absen</span><small class="text-muted smaller">Getar, Suara & Banner</small></div>
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" v-model="isNotificationEnabled">
             </div>
@@ -656,7 +732,7 @@ onUnmounted(()=> {
               <div class="status-dot-schedule"></div>
             </div>
           </div>
-          <div v-if="jadwalHariIni.length === 0" class="text-center py-5"><i class="bi bi-calendar2-x fs-1 text-light mb-3 d-block"></i><p class="text-muted small">Tidak ada jadwal untuk kelas <b>{{ student.class }}</b> hari ini.</p></div>
+          <div v-if="jadwalHariIni.length === 0" class="text-center py-5"><i class="bi bi-calendar2-x fs-1 text-light mb-3 d-block"></i><p class="text-muted small">Tidak ada jadwal hari ini.</p></div>
         </div>
         <button @click="scheduleVisible=false" class="btn btn-primary-custom w-100 py-3 rounded-pill mt-3">Tutup</button>
       </div>
@@ -669,7 +745,48 @@ onUnmounted(()=> {
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 
 .app-container { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; min-height: 100vh; max-width: 500px; margin: 0 auto; position: relative; overflow-x: hidden; touch-action: pan-y; }
+/* CSS UNTUK FIX WARNA STATUS PULANG */
+.status-card {
+  border-radius: 24px;
+  overflow: hidden;
+  transition: all 0.4s ease;
+  border: none;
+}
 
+.status-active {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%); /* Hijau */
+}
+
+.status-pending {
+  background: linear-gradient(135deg, #6b7280 0%, #374151 100%); /* Abu-abu */
+}
+
+/* WARNA KHUSUS UNTUK STATUS PULANG AGAR TERLIHAT JELAS */
+.status-pulang {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); /* Orange Emas */
+  box-shadow: 0 10px 20px rgba(245, 158, 11, 0.3);
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
+
+/* Style tambahan lainnya menyesuaikan layout anda */
+.app-container { background-color: #f8f9fa; min-height: 100vh; padding-bottom: 50px; }
+.btn-primary-custom { background: #007bff; color: white; border: none; border-radius: 15px; font-weight: bold; }
+.action-card { background: white; border: 1px solid #eee; border-radius: 20px; transition: transform 0.2s; }
+.action-card:active { transform: scale(0.95); }
+.disabled-card { opacity: 0.6; grayscale: 1; cursor: not-allowed; }
 /* STATISTIK */
 .stat-card { padding: 12px 5px; border-radius: 16px; text-align: center; display: flex; flex-direction: column; transition: 0.3s; border: 1px solid rgba(0,0,0,0.05); }
 .stat-val { font-size: 1.2rem; font-weight: 800; display: block; }
