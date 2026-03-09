@@ -23,7 +23,7 @@ import KamisImg from '../Kamis.jpg'
 import jumatImg from '../jumat.jpg'
 
 const router = useRouter()
-const backendUrl = 'https://backend-complited.vercel.app'
+const backendUrl = 'https://project-backend-beres-5z94.vercel.app/api'
 
 
 // ================= STATE SISWA & UI =================
