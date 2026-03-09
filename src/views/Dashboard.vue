@@ -5,7 +5,6 @@ import QRCode from 'qrcode'
 import axios from 'axios'
 
 const router = useRouter()
-// Sesuaikan dengan URL Backend kamu
 const backendUrl = 'https://backend-complited.vercel.app'
 const apiUrl = 'https://project-backend-beres-5z94.vercel.app/api'
 
@@ -14,10 +13,9 @@ const user = ref({ name:'', role:'guru', mapel:'' })
 const students = ref([])
 const searchQuery = ref('')
 const showHistoryFor = ref(null)
-const activeTab = ref('hadir')
+const activeTab = ref('hadir') // hadir, pulang, belum, semua
 const isRefreshing = ref(false)
 
-// --- Filter Jurusan ---
 const selectedClass = ref('XII RPL 2') 
 const classOptions = [
   'X RPL 1', 'X RPL 2', 'X RPL 3', 'X AKL 1', 'X AKL 2', 'X AKL 3',
@@ -73,11 +71,15 @@ const filteredStudents = computed(() => {
   if (selectedClass.value) {
     list = list.filter(s => (s.class || '').trim() === selectedClass.value)
   }
+
   if (activeTab.value === 'hadir') {
-    list = list.filter(s => ['hadir', 'izin', 'sakit', 'alfa'].includes(s.status?.toLowerCase()))
+    list = list.filter(s => s.status && s.status !== 'Pulang')
+  } else if (activeTab.value === 'pulang') {
+    list = list.filter(s => s.status === 'Pulang')
   } else if (activeTab.value === 'belum') {
     list = list.filter(s => !s.status)
   }
+
   if (searchQuery.value) {
     const q = searchQuery.value.toLowerCase()
     list = list.filter(s =>
@@ -89,7 +91,11 @@ const filteredStudents = computed(() => {
 })
 
 const hadirCount = computed(() =>
-  filteredStudents.value.filter(s => ['hadir', 'izin', 'sakit', 'alfa'].includes(s.status?.toLowerCase())).length
+  students.value.filter(s => (s.class || '').trim() === selectedClass.value && s.status && s.status !== 'Pulang').length
+)
+
+const pulangCount = computed(() =>
+  students.value.filter(s => (s.class || '').trim() === selectedClass.value && s.status === 'Pulang').length
 )
 
 // ================= AI CAMERA LOGIC =================
@@ -182,7 +188,9 @@ const loadStudents = async (isManual = false) => {
 
       const isPresentToday = todayHistory.length > 0
       const latestRecord = isPresentToday ? todayHistory[todayHistory.length - 1] : null
-      const currentStatus = latestRecord ? latestRecord.status : null
+      
+      // LOGIKA STATUS: Jika ada record Pulang terakhir, maka status = Pulang. Jika tidak, status dari record terakhir.
+      const currentStatus = s.status === 'Pulang' ? 'Pulang' : (latestRecord ? latestRecord.status : null)
       
       let finalEvidenceUrl = null;
       let isDriveLink = false;
@@ -222,12 +230,13 @@ const loadStudents = async (isManual = false) => {
 
 const updateStatusManual = async (nis, newStatus) => {
   try {
+    // API absensi-manual di backend biasanya menghandle override status siswa
     await axios.post(`${apiUrl}/students/absensi-manual`, {
       nis: nis,
       status: newStatus,
       teacherName: user.value.name
     })
-    showToast(`Berhasil update status ke ${newStatus}`)
+    showToast(`Berhasil mengubah status ke ${newStatus}`)
     await loadStudents() 
   } catch (e) {
     showToast('Gagal update status', 'error')
@@ -356,16 +365,19 @@ onUnmounted(() => {
       <div class="row align-items-center g-0">
         <div class="col-7 p-4">
           <h4 class="fw-bold mb-1 text-white">{{ selectedClass }}</h4>
-          <p class="text-white-50 small mb-0">Status Kehadiran Hari Ini</p>
-          <div v-if="aiStudentCount > 0" class="mt-2">
-            <span class="badge bg-primary-subtle text-primary smaller">
-              <i class="bi bi-cpu-fill me-1"></i> AI Scan: {{ aiStudentCount }} Siswa
+          <p class="text-white-50 small mb-0">Status Hari Ini</p>
+          <div class="mt-2 d-flex gap-2">
+            <span v-if="aiStudentCount > 0" class="badge bg-primary-subtle text-primary smaller">
+              <i class="bi bi-cpu-fill"></i> AI: {{ aiStudentCount }}
+            </span>
+            <span class="badge bg-warning-subtle text-warning smaller">
+               <i class="bi bi-house-check"></i> Pulang: {{ pulangCount }}
             </span>
           </div>
         </div>
         <div class="col-5 p-3">
           <div class="stat-card-inner">
-            <span class="d-block small text-white-50">TERDATA</span>
+            <span class="d-block small text-white-50">HADIR</span>
             <h2 class="fw-black m-0 text-white">{{ hadirCount }}<small class="fs-6 opacity-50">/{{ filteredStudents.length }}</small></h2>
           </div>
         </div>
@@ -376,8 +388,8 @@ onUnmounted(() => {
       <div class="d-flex align-items-center gap-3">
         <div class="ai-icon-box"><i class="bi bi-camera-video-fill text-indigo fs-3"></i></div>
         <div class="text-start flex-grow-1">
-          <h6 class="fw-bold mb-0">Hitung Siswa (Camera System)</h6>
-          <small class="text-muted">Deteksi otomatis jumlah orang di kelas</small>
+          <h6 class="fw-bold mb-0">Hitung Siswa (AI Camera)</h6>
+          <small class="text-muted">Deteksi jumlah orang di kelas</small>
         </div>
         <i class="bi bi-record-circle text-danger blink"></i>
       </div>
@@ -388,7 +400,7 @@ onUnmounted(() => {
         <div class="qr-icon-box"><i class="bi bi-qr-code text-primary fs-3"></i></div>
         <div class="text-start flex-grow-1">
           <h6 class="fw-bold mb-0">Tampilkan QR Absensi</h6>
-          <small class="text-muted">Untuk Kelas {{ selectedClass }}</small>
+          <small class="text-muted">Scan untuk masuk kelas</small>
         </div>
         <i class="bi bi-chevron-right text-muted"></i>
       </div>
@@ -397,9 +409,10 @@ onUnmounted(() => {
     <section class="list-section bg-white rounded-4 shadow-sm overflow-hidden mb-4">
       <div class="p-3 border-bottom">
         <div class="d-flex align-items-center justify-content-between mb-3">
-            <div class="tab-pill-container flex-grow-1 me-2">
-                <button @click="activeTab = 'hadir'" :class="{ active: activeTab === 'hadir' }">Kehadiran Siswa</button>
-                <button @click="activeTab = 'belum'" :class="{ active: activeTab === 'belum' }">Siswa Belum Hadir</button>
+            <div class="tab-pill-container flex-grow-1 me-2 overflow-auto d-flex" style="white-space: nowrap;">
+                <button @click="activeTab = 'hadir'" :class="{ active: activeTab === 'hadir' }">Hadir ({{ hadirCount }})</button>
+                <button @click="activeTab = 'pulang'" :class="{ active: activeTab === 'pulang' }">Pulang ({{ pulangCount }})</button>
+                <button @click="activeTab = 'belum'" :class="{ active: activeTab === 'belum' }">Belum Absen</button>
                 <button @click="activeTab = 'semua'" :class="{ active: activeTab === 'semua' }">Semua</button>
             </div>
             <button @click="loadStudents(true)" class="btn-refresh" :class="{ spinning: isRefreshing }">
@@ -425,26 +438,25 @@ onUnmounted(() => {
               </div>
               <div class="d-flex flex-column align-items-end gap-1">
                 <span :class="['status-tag', 
-                  s.status?.toLowerCase().includes('hadir') ? 'tag-hadir' : 
+                  s.status?.toLowerCase() === 'hadir' ? 'tag-hadir' : 
+                  s.status?.toLowerCase() === 'pulang' ? 'tag-pulang' :
                   s.status?.toLowerCase() === 'izin' ? 'tag-izin' :
                   s.status?.toLowerCase() === 'sakit' ? 'tag-sakit' :
                   s.status?.toLowerCase() === 'alfa' ? 'tag-alfa' : 'tag-pending']">
-                  <i :class="s.status ? 'bi bi-whatsapp' : 'bi bi-clock'"></i>
-                  {{ s.status ? 'Foto Kehadiran Terkirim' : 'Belum Absen' }}
-                </span>
-                <span v-if="s.isDriveLink" class="badge bg-success-subtle text-success smaller p-1" style="font-size: 0.55rem;">
-                   <i class="bi bi-google"></i> Foto Terkirim (Drive)
+                  <i :class="s.status ? 'bi bi-check-circle-fill' : 'bi bi-clock'"></i>
+                  {{ s.status ? s.status : 'Belum Absen' }}
                 </span>
 
                 <div class="dropdown">
                   <button class="btn btn-sm btn-light py-0 px-2 smaller fw-bold border" type="button" data-bs-toggle="dropdown">
-                    Set Manual <i class="bi bi-chevron-down"></i>
+                    Ubah Status <i class="bi bi-chevron-down"></i>
                   </button>
                   <ul class="dropdown-menu dropdown-menu-end shadow border-0 smaller">
-                    <li><button @click="updateStatusManual(s.nis, 'Hadir')" class="dropdown-item py-2 text-success fw-bold">Hadir</button></li>
-                    <li><button @click="updateStatusManual(s.nis, 'Izin')" class="dropdown-item py-2 text-warning fw-bold">Izin</button></li>
-                    <li><button @click="updateStatusManual(s.nis, 'Sakit')" class="dropdown-item py-2 text-primary fw-bold">Sakit</button></li>
-                    <li><button @click="updateStatusManual(s.nis, 'Alfa')" class="dropdown-item py-2 text-danger fw-bold">Alfa</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Hadir')" class="dropdown-item py-2 text-success fw-bold">Set Hadir</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Pulang')" class="dropdown-item py-2 text-warning fw-bold">Set Pulang</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Izin')" class="dropdown-item py-2 text-warning fw-bold">Set Izin</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Sakit')" class="dropdown-item py-2 text-primary fw-bold">Set Sakit</button></li>
+                    <li><button @click="updateStatusManual(s.nis, 'Alfa')" class="dropdown-item py-2 text-danger fw-bold">Set Alfa</button></li>
                   </ul>
                 </div>
               </div>
@@ -453,43 +465,39 @@ onUnmounted(() => {
             <div v-if="s.status" class="mt-2 pt-2 border-top-dashed d-flex flex-column gap-2">
                 <button @click="toggleHistory(s.nis)" class="btn-detail text-start">
                   <i class="bi bi-eye-fill me-1"></i>
-                  {{ showHistoryFor === s.nis ? 'Sembunyikan Detail' : (s.isDriveLink ? 'Lihat Waktu & Link Google Drive' : 'Lihat Waktu & Bukti Whatsapp') }}
+                  {{ showHistoryFor === s.nis ? 'Sembunyikan Detail' : 'Lihat Waktu & Bukti' }}
                 </button>
                 
                 <div v-if="showHistoryFor === s.nis" class="detail-expanded p-2 bg-light rounded-3 border">
                   <div v-for="(h, idx) in s.attendanceHistory" :key="idx" class="text-primary smaller mb-2">
                     <i class="bi bi-stopwatch me-1"></i>
-                    {{ h.day }} • {{ h.time }} <span class="text-muted">(Diterima via WA)</span>
+                    {{ h.day }} • {{ h.time }} <span class="badge" :class="h.status === 'Pulang' ? 'bg-warning' : 'bg-success'">{{ h.status }}</span>
                   </div>
 
-                  <div v-if="s.evidenceUrl" class="mt-2">
-                    <label class="smaller fw-bold text-muted d-block mb-1">BUKTI KEHADIRAN:</label>
-                    
+                  <div v-if="s.evidenceUrl && s.status !== 'Pulang'" class="mt-2">
+                    <label class="smaller fw-bold text-muted d-block mb-1">BUKTI FOTO:</label>
                     <div v-if="s.isDriveLink">
-                       <a :href="s.evidenceUrl" target="_blank" class="btn btn-primary w-100 py-2 rounded-3 fw-bold smaller">
-                          <i class="bi bi-box-arrow-up-right me-2"></i> Buka Foto di Google Drive
+                       <a :href="s.evidenceUrl" target="_blank" class="btn btn-primary btn-sm w-100 py-2 rounded-3 fw-bold">
+                          <i class="bi bi-google"></i> Buka Google Drive
                        </a>
-                       <small class="d-block text-muted mt-2 text-center" style="font-size: 0.6rem;">Foto disimpan di folder cloud siswa</small>
                     </div>
-
                     <div v-else>
-                        <img :src="s.evidenceUrl" class="img-fluid rounded-3 border shadow-sm" style="max-height: 250px; width: 100%; object-fit: cover; cursor: pointer;" @click="window.open(s.evidenceUrl, '_blank')">
-                        <small class="d-block text-muted mt-1" style="font-size: 0.6rem;">Klik gambar untuk memperbesar</small>
+                        <img :src="s.evidenceUrl" class="img-fluid rounded-3 border shadow-sm" style="max-height: 200px; width: 100%; object-fit: cover;" @click="window.open(s.evidenceUrl, '_blank')">
                     </div>
-                  </div>
-                  
-                  <div v-else class="text-danger smaller py-2 text-center bg-white rounded border">
-                    <i class="bi bi-image-fill me-1"></i> Siswa belum mengirimkan foto ke WhatsApp.
                   </div>
                 </div>
             </div>
           </div>
         </TransitionGroup>
+        <div v-if="filteredStudents.length === 0" class="p-5 text-center text-muted">
+           <i class="bi bi-person-x fs-1 opacity-25"></i>
+           <p class="mt-2">Tidak ada data ditemukan</p>
+        </div>
       </div>
     </section>
 
     <button @click="resetAllAttendance" class="btn-reset-data mb-5">
-      <i class="bi bi-trash3 me-2"></i> Reset Kehadiran Hari Ini
+      <i class="bi bi-trash3 me-2"></i> Reset Data Hari Ini
     </button>
   </main>
 
@@ -499,7 +507,7 @@ onUnmounted(() => {
         <div class="drag-handle mb-4"></div>
         <div class="text-center mb-4">
           <h5 class="fw-bold mb-1">QR Code Presensi</h5>
-          <p class="text-muted small">Mata Pelajaran: {{ user.mapel || 'Sesi Guru' }}</p>
+          <p class="text-muted small">Kelas: {{ selectedClass }}</p>
         </div>
         <div class="qr-display-area zoom-qr shadow-lg">
           <img :key="guruQr" :src="guruQr" class="img-fluid rounded-3 qr-main-img" alt="QR Code" />
