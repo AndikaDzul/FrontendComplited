@@ -111,6 +111,11 @@ const role = ref('siswa')
 const error = ref('')
 const loading = ref(false)
 
+// Fungsi untuk mendapatkan fingerprint sederhana perangkat (Keamanan Tambahan)
+const getDeviceId = () => {
+  return btoa(navigator.userAgent + navigator.language + screen.width);
+}
+
 const checkAuth = () => {
   const isLoggedIn = localStorage.getItem('isLoggedIn')
   const savedRole = localStorage.getItem('role')
@@ -168,17 +173,22 @@ const handleLogin = async () => {
     let endpoint = role.value === 'guru' ? '/teachers/login' : 
                    role.value === 'siswa' ? '/students/login' : '/admins/login'
 
+    // Tambahkan device_id agar backend bisa mendeteksi jika login di HP lain
+    const deviceId = getDeviceId();
+    
     const body = role.value === 'siswa' 
-      ? { nis: username.value, password: password.value } 
-      : { email: username.value, password: password.value }
+      ? { nis: username.value, password: password.value, device_id: deviceId } 
+      : { email: username.value, password: password.value, device_id: deviceId }
 
     const response = await axios.post(`${backendUrl}${endpoint}`, body)
     const userData = response.data.user || response.data.data || response.data
 
+    // Simpan data login ke localStorage
     localStorage.setItem('isLoggedIn', 'true')
     localStorage.setItem('role', role.value)
     localStorage.setItem('remembered_user', username.value)
     localStorage.setItem('remembered_pass', password.value)
+    localStorage.setItem('session_token', response.data.token || ''); // Simpan token keamanan
 
     if (role.value === 'siswa') {
       localStorage.setItem('studentName', userData.name || userData.nama || 'Siswa')
@@ -192,6 +202,9 @@ const handleLogin = async () => {
   } catch (err) {
     if (err.message === 'Network Error') {
       error.value = 'Gagal menghubungi server. Mohon periksa koneksi internet Anda.'
+    } else if (err.response?.status === 403) {
+      // Logic jika backend mengirim 403 (Account already logged in elsewhere)
+      error.value = 'Akun ini sedang aktif di perangkat lain. Silakan logout terlebih dahulu.'
     } else {
       error.value = err.response?.data?.message || 'Data login tidak sesuai.'
     }
@@ -217,7 +230,6 @@ const handleLogin = async () => {
   padding: 20px;
 }
 
-/* --- REFINED FLAT LOADING SCREEN --- */
 .premium-loader {
   position: fixed;
   inset: 0;
@@ -303,7 +315,6 @@ const handleLogin = async () => {
   100% { width: 0%; transform: translateX(400%); }
 }
 
-/* --- BACKGROUND & CARD --- */
 .bg-decoration { position: absolute; width: 100%; height: 100%; z-index: 0; }
 .blob { position: absolute; border-radius: 50%; filter: blur(100px); opacity: 0.4; }
 .blob-1 { width: 400px; height: 400px; background: #3b82f6; top: -100px; right: -50px; }
