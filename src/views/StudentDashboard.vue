@@ -417,17 +417,14 @@ const displayStatus = computed(() => {
   const currentMapel = getCurrentMapel();
   const today = new Date().toDateString();
   
-  // Cari apakah ada absen untuk mapel yang sedang aktif sekarang
   const hasAbsenNow = student.value.attendanceHistory?.find(h => 
     new Date(h.timestamp).toDateString() === today && h.mapel === currentMapel
   );
 
-  // Jika sedang ada mapel aktif DAN siswa sudah absen untuk mapel itu
   if(hasAbsenNow && student.value.lastAttendance){
     return `${hasAbsenNow.status} - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
   }
   
-  // Jika tidak ada mapel aktif atau belum absen untuk mapel yang sekarang
   return !isSchoolTime.value ? 'Di luar jam sekolah' : 'Belum Absen'
 });
 
@@ -554,7 +551,7 @@ onUnmounted(()=>{
 
   <main class="container px-4 mt-4">
     <section class="status-card shadow-sm mb-4" :class="{
-      'status-hadir': displayStatus.includes('Hadir') || displayStatus.includes('Telat'),
+      'status-hadir': displayStatus.includes('Hadir'),
       'status-sakit': student.status === 'Sakit',
       'status-izin': student.status === 'Izin',
       'status-alfa': student.status === 'Alfa',
@@ -736,7 +733,206 @@ onUnmounted(()=>{
   transition: all 0.4s ease;
   border: none;
 }
+/* CSS WARNA STATUS KEHADIRAN */
 
+/* Status Hadir: Hijau */
+.status-hadir {
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important;
+}
+
+/* Status Sakit: Kuning/Oranye */
+.status-sakit {
+  background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%) !important;
+}
+
+/* Status Izin: Biru */
+.status-izin {
+  background: linear-gradient(135deg, #0d6efd 0%, #0dcaf0 100%) !important;
+}
+
+/* Status Alfa: Merah */
+.status-alfa {
+  background: linear-gradient(135deg, #dc3545 0%, #f8d7da 100%) !important;
+  color: white !important;
+}
+
+/* Status Belum Absen / Pending */
+.status-pending {
+  background: linear-gradient(135deg, #6c757d 0%, #adb5bd 100%) !important;
+}
+
+/* Di luar jam sekolah */
+.status-pulang {
+  background: linear-gradient(135deg, #343a40 0%, #495057 100%) !important;
+}
+
+/* Style tambahan untuk Stat Card di Profil */
+.stat-card.hadir { background: #e8f5e9; color: #2e7d32; }
+.stat-card.sakit { background: #fff8e1; color: #f57f17; }
+.stat-card.izin { background: #e3f2fd; color: #1565c0; }
+.stat-card.alfa { background: #ffebee; color: #c62828; }
+
+/* Struktur Umum App */
+.app-container {
+  max-width: 500px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background-color: #f8f9fa;
+  font-family: 'Inter', sans-serif;
+  position: relative;
+}
+
+.status-card {
+  border-radius: 24px;
+  border: none;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.action-card {
+  background: white;
+  border-radius: 20px;
+  border: 1px solid #eee;
+  transition: transform 0.2s;
+}
+
+.action-card:active { transform: scale(0.95); }
+
+.scan-active {
+  background: #f0fdf4;
+  border: 1px solid #22c55e;
+  color: #15803d;
+}
+
+.disabled-card {
+  opacity: 0.6;
+  background: #f1f5f9;
+}
+
+/* Animasi */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Custom CSS lainnya untuk menunjang tampilan yang kamu buat */
+.user-avatar-glow {
+  width: 45px;
+  height: 45px;
+  background: #0d6efd;
+  color: white;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.banner-container {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.banner-scroll-wrapper {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.banner-slide {
+  min-width: 100%;
+  height: 160px;
+  scroll-snap-align: start;
+  position: relative;
+}
+
+.banner-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.banner-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.4));
+}
+
+.banner-dots {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+}
+
+.banner-dots span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.5);
+}
+
+.banner-dots span.active {
+  background: white;
+  width: 15px;
+  border-radius: 10px;
+}
+
+.stat-card {
+  padding: 10px 5px;
+  border-radius: 12px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-val { font-weight: 800; font-size: 1.1rem; }
+.stat-lbl { font-size: 0.65rem; font-weight: 600; }
+
+.sheet-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1050;
+  display: flex;
+  align-items: flex-end;
+}
+
+.sheet-content {
+  background: white;
+  width: 100%;
+  max-width: 500px;
+  margin: 0 auto;
+  border-top-left-radius: 30px;
+  border-top-right-radius: 30px;
+  padding: 20px 25px 40px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.sheet-handle {
+  width: 40px; height: 5px;
+  background: #e2e8f0;
+  border-radius: 10px;
+  margin: 0 auto 20px;
+}
+
+/* Tambahkan style scanner agar pas di mobile */
+.scanner-fullscreen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: #000;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+}
+
+#qr-reader {
+  width: 100% !important;
+  height: 100% !important;
+  border: none !important;
+}
 .status-active {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%); /* Hijau */
 }
