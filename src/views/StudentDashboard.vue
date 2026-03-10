@@ -31,8 +31,7 @@ const student = ref({
   nis:'', 
   class:'', 
   status:'Belum Absen', 
-  lastAttendance: null, 
-  lastPulang: null, 
+  lastAttendance: null,
   gender: '' 
 })
 const attendanceStats = ref({ hadir: 0, sakit: 0, izin: 0, alfa: 0 }) 
@@ -44,26 +43,51 @@ const profileImage = ref(null)
 const showLogoutConfirm = ref(false) 
 const showVibrateBanner = ref(false) 
 const isSendingEmail = ref(false)
-const isProcessingAbsen = ref(false) // State untuk overlay loading
+const isProcessingAbsen = ref(false)
 let html5QrCode = null   
 let scanning = false
 const guruTokenPrefix = 'ABSENSI-GURU-'
 
 const isNotificationEnabled = ref(localStorage.getItem('notif_active') !== 'false')
 
+// ================= JAM BATAS ABSEN =================
+const getCurrentTimeMinutes = () => {
+  const now = new Date()
+  return now.getHours() * 60 + now.getMinutes()
+}
+
+const isSchoolTime = computed(() => {
+  const currentMinutes = getCurrentTimeMinutes()
+  // Jam sekolah: 06:00 - 15:00 (900 menit)
+  return currentMinutes >= 360 && currentMinutes <= 900
+})
+
+const isLate = computed(() => {
+  const currentMinutes = getCurrentTimeMinutes()
+  // Telat setelah jam 07:30 (450 menit)
+  return currentMinutes > 450
+})
+
+const canAbsen = computed(() => {
+  if (!isSchoolTime.value) return false
+  if (student.value.status === 'Hadir') return false
+  return true
+})
+
 // ================= LOGIKA KIRIM BUKTI (WHATSAPP REDIRECT) =================
 const isUploading = ref(false)
 
 const handleSendEvidenceDirect = () => {
-  const phoneNumber = '6281322233928' // Format internasional tanpa '+'
+  const phoneNumber = '6281322233928'
   const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   const dateStr = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const statusText = isLate.value ? 'Telat' : 'Hadir'
 
   const message = `Halo Bapak Ibu , saya ingin melaporkan kehadiran:%0A%0A` +
                   `*Nama:* ${student.value.name}%0A` +
                   `*NIS:* ${student.value.nis}%0A` +
                   `*Kelas:* ${student.value.class}%0A` +
-                  `*Status:* ${student.value.status}%0A` +
+                  `*Status:* ${statusText}%0A` +
                   `*Waktu:* ${timeStr} WIB%0A` +
                   `*Tanggal:* ${dateStr}%0A%0A` +
                   `Berikut saya lampirkan bukti foto kehadiran saya. Terima kasih.`;
@@ -78,7 +102,6 @@ const handleSendEvidenceDirect = () => {
   }, 800)
 }
 
-
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'visible' && isUploading.value) {
     isUploading.value = false;
@@ -91,7 +114,7 @@ const handleVisibilityChange = () => {
 let reminderInterval = null;
 
 const playReminderFeedback = () => {
-  if (!isNotificationEnabled.value || student.value.status !== 'Belum Absen') {
+  if (!isNotificationEnabled.value || student.value.status !== 'Belum Absen' || !isSchoolTime.value) {
     stopReminderSystem();
     return;
   }
@@ -110,7 +133,7 @@ const playReminderFeedback = () => {
 const startReminderSystem = () => {
   stopReminderSystem(); 
   
-  if (isNotificationEnabled.value && student.value.status === 'Belum Absen') {
+  if (isNotificationEnabled.value && student.value.status === 'Belum Absen' && isSchoolTime.value) {
     showVibrateBanner.value = true;
     updateBackgroundReminder();
     playReminderFeedback();
@@ -140,7 +163,7 @@ const updateBackgroundReminder = () => {
       name: student.value.name
     });
 
-    if (isNotificationEnabled.value && student.value.status === 'Belum Absen') {
+    if (isNotificationEnabled.value && student.value.status === 'Belum Absen' && isSchoolTime.value) {
         navigator.serviceWorker.controller.postMessage({
             type: 'SHOW_NOTIF',
             enabled: true,
@@ -154,7 +177,7 @@ watch(isNotificationEnabled, (newVal) => {
   localStorage.setItem('notif_active', newVal)
   if (newVal) {
     requestNotificationPermission();
-    if (student.value.status === 'Belum Absen') {
+    if (student.value.status === 'Belum Absen' && isSchoolTime.value) {
       startReminderSystem();
     }
   } else {
@@ -163,7 +186,7 @@ watch(isNotificationEnabled, (newVal) => {
 })
 
 watch(() => student.value.status, (newStatus) => {
-  if (newStatus === 'Belum Absen') {
+  if (newStatus === 'Belum Absen' && isSchoolTime.value) {
     startReminderSystem();
   } else {
     stopReminderSystem();
@@ -303,31 +326,21 @@ const loadAttendance = async ()=>{
       student.value.name = me.name
       student.value.class = me.class
       student.value.gender = me.gender || ''
-      student.value.lastPulang = me.lastPulang || null 
       
-      // Hitung total absen hari ini
+      // Cek status berdasarkan jadwal mata pelajaran hari ini
       const today = new Date().toDateString();
       const todayAbsensi = me.attendanceHistory?.filter(h => 
-        new Date(h.timestamp).toDateString() === today && h.status === 'Hadir'
+        new Date(h.timestamp).toDateString() === today
       ) || [];
       
-      const totalHadirToday = todayAbsensi.length;
-      const lastAttend = todayAbsensi.length > 0 ? todayAbsensi[todayAbsensi.length - 1].timestamp : null;
-      
-      student.value.lastAttendance = lastAttend;
-
-      // LOGIKA RESET SETIAP 1 JAM
-      if (me.status === 'Pulang') {
-        student.value.status = 'Pulang';
-      } else if (lastAttend) {
-        const diff = new Date().getTime() - new Date(lastAttend).getTime();
-        const oneHour = 60 * 60 * 1000;
-
-        if (diff > oneHour && totalHadirToday < 5) {
-          student.value.status = 'Belum Absen'; // Reset agar bisa absen lagi
-        } else {
-          student.value.status = 'Hadir';
-        }
+      // Reset status setiap pagi
+      if (getCurrentTimeMinutes() < 360) { // Sebelum jam 6 pagi
+        student.value.status = 'Belum Absen';
+        student.value.lastAttendance = null;
+      } else if (todayAbsensi.length > 0) {
+        // Sudah absen mata pelajaran hari ini
+        student.value.status = 'Hadir';
+        student.value.lastAttendance = todayAbsensi[todayAbsensi.length - 1].timestamp;
       } else {
         student.value.status = 'Belum Absen';
       }
@@ -345,7 +358,7 @@ const loadAttendance = async ()=>{
         attendanceStats.value = stats
       }
       
-      if (student.value.status === 'Belum Absen') {
+      if (student.value.status === 'Belum Absen' && isSchoolTime.value) {
         startReminderSystem();
       } else {
         stopReminderSystem();
@@ -355,16 +368,13 @@ const loadAttendance = async ()=>{
 }
 
 const startScan = async () => {
-  if (!canAbsen.value) return showToast('Tunggu 1 jam atau batas absen habis.', 'error')
-  
-  // Batasan Jam Pagi 06:25
-  const now = new Date();
-  const currentHour = now.getHours();
-  const currentMin = now.getMinutes();
-  if (currentHour < 6 || (currentHour === 6 && currentMin < 25)) {
-    return showToast('Absensi baru dibuka jam 06:25 pagi.', 'info')
+  if (!canAbsen.value) {
+    if (!isSchoolTime.value) {
+      return showToast('Absensi hanya bisa dilakukan jam 06:00 - 15:00.', 'error')
+    }
+    return showToast('Kamu sudah absen mata pelajaran hari ini!', 'info')
   }
-
+  
   showToast('Cek Lokasi...', 'info')
   try {
     await checkLocation()
@@ -378,7 +388,7 @@ const startScan = async () => {
       if (text.startsWith(guruTokenPrefix)) {  
         scanning = true
         qrVisible.value = false 
-        await submitAttendance(text)  
+        await submitAttendance(text) 
       } else { showToast('QR Code tidak valid!', 'error') }
     })
   } catch (err) { showToast(err, 'error'); qrVisible.value = false }
@@ -393,12 +403,21 @@ const submitAttendance = async(token)=>{
   isProcessingAbsen.value = true 
   try{
     const now = new Date().toISOString()
-    const currentMapel = jadwalHariIni.value.length > 0 ? jadwalHariIni.value[0].mapel : 'Pelajaran Umum'
+    const currentMapel = jadwalHariIni.value.find(j => {
+      const [startHour, startMin] = j.jam.split(':').map(Number)
+      const [endHour, endMin] = j.jam.split('-')[1]?.split(':').map(Number) || [startHour+1, startMin]
+      const currentMinutes = getCurrentTimeMinutes()
+      const startMinutes = startHour * 60 + startMin
+      const endMinutes = endHour * 60 + endMin
+      return currentMinutes >= startMinutes && currentMinutes <= endMinutes
+    })?.mapel || jadwalHariIni.value[0]?.mapel || 'Pelajaran Umum'
+    
+    const status = isLate.value ? 'Telat' : 'Hadir'
     
     await new Promise(r => setTimeout(r, 1500));
     
-    await axios.post(`${backendUrl}/students/attendance/${student.value.nis}`, {  
-      status: 'Hadir', 
+    await axios.post(`${backendUrl}/students/attendance/${student.value.nis}`, { 
+      status: status, 
       qrToken: token, 
       mapel: currentMapel, 
       timestamp: now  
@@ -406,11 +425,11 @@ const submitAttendance = async(token)=>{
     
     student.value.status = 'Hadir'
     student.value.lastAttendance = now
-    stopReminderSystem();  
-    playSuccessFeedback();  
+    stopReminderSystem(); 
+    playSuccessFeedback(); 
 
     isProcessingAbsen.value = false 
-    showToast('Absensi Berhasil!')
+    showToast(`Absensi ${status} ${currentMapel} berhasil!`)
     setTimeout(() => { stopScan(); loadAttendance() }, 800)
   } catch(err){ 
     isProcessingAbsen.value = false
@@ -419,44 +438,13 @@ const submitAttendance = async(token)=>{
   }
 }
 
-// ================= LOGIKA LOG PULANG (HAPUS PEMBATASAN) =================
-const handleLogPulang = async () => {
-  if (!confirm('Apakah Anda sudah pulang?')) return;
-
-  try {
-    const now = new Date().toISOString();
-    await axios.post(`${backendUrl}/students/attendance/pulang/${student.value.nis}`, {
-      timestamp: now
-    });
-
-    student.value.status = 'Pulang';
-    student.value.lastPulang = now;
-    stopReminderSystem();
-    
-    showToast('Log Pulang Berhasil! Hati-hati di jalan.', 'success');
-    loadAttendance(); 
-  } catch (err) {
-    console.error(err);
-    showToast('Gagal log pulang', 'error');
-  }
-}
-
-const canAbsen = computed(() => {
-  if (student.value.status === 'Pulang') return false;
-  if (!student.value.lastAttendance) return true;
-  
-  const diff = new Date().getTime() - new Date(student.value.lastAttendance).getTime();
-  const oneHour = 1 * 60 * 60 * 1000;
-  
-  return diff > oneHour;
-});
-
 const displayStatus = computed(() => {
   if(student.value.status === 'Hadir' && student.value.lastAttendance){
-    return `Hadir - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
+    const statusText = isLate.value ? 'Telat' : 'Hadir'
+    return `${statusText} - ${new Date(student.value.lastAttendance).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
   }
-  if(student.value.status === 'Pulang' && student.value.lastPulang){
-    return `Pulang - ${new Date(student.value.lastPulang).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit' })}`
+  if (!isSchoolTime.value) {
+    return 'Di luar jam sekolah'
   }
   return student.value.status
 });
@@ -474,7 +462,7 @@ const executeLogout = () => {
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange);
   requestNotificationPermission()
-  loadCompressionLibrary();  
+  loadCompressionLibrary(); 
   const savedNis = localStorage.getItem('studentNis')
   if (!savedNis || savedNis === '') { router.replace('/login'); return }
   if (!localStorage.getItem('hasSeenGuide')) showGuide.value = true
@@ -488,16 +476,16 @@ onMounted(async () => {
   await loadAttendance()
   await Promise.all([loadGpsConfig(), fetchJadwalFromAdmin()])
   
-  const interval = setInterval(loadAttendance, 30000)  
- 
-  onUnmounted(() => {  
-    clearInterval(interval);  
+  const interval = setInterval(loadAttendance, 30000) 
+  
+  onUnmounted(() => { 
+    clearInterval(interval); 
     stopReminderSystem();
     document.removeEventListener('visibilitychange', handleVisibilityChange);
   })
 })
 
-onUnmounted(()=> {
+onUnmounted(()=>{
   stopScan();
   stopReminderSystem();
   document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -520,7 +508,7 @@ onUnmounted(()=> {
   </transition>
 
   <transition name="slide-down">
-    <div v-if="showVibrateBanner && student.status === 'Belum Absen' && isNotificationEnabled" class="vibrate-banner shadow" @click="startScan">
+    <div v-if="showVibrateBanner && student.status === 'Belum Absen' && isNotificationEnabled && isSchoolTime" class="vibrate-banner shadow" @click="startScan">
         <div class="d-flex align-items-center gap-3">
            <div class="vibrate-icon"><i class="bi bi-bell-fill"></i></div>
            <div class="flex-grow-1">
@@ -528,7 +516,7 @@ onUnmounted(()=> {
             <small>Halo {{ student.name }}, kamu belum absen.</small>
            </div>
            <div class="vibrate-action">
-              <span class="badge rounded-pill bg-white text-success fw-bold">ABSEN</span>
+               <span class="badge rounded-pill bg-white text-success fw-bold">ABSEN</span>
            </div>
         </div>
     </div>
@@ -569,7 +557,7 @@ onUnmounted(()=> {
           </div>
           <div class="guide-step-item">
             <div class="step-icon"><i class="bi bi-qr-code-scan"></i></div>
-            <div class="step-text"><h6>Scan QR Guru</h6><p>Klik <strong>ABSENSI</strong> dan scan QR Guru.</p></div>
+            <div class="step-text"><h6>Scan QR Guru</h6><p>Klik <strong>ABSENSI</strong> dan scan QR Guru sesuai mata pelajaran.</p></div>
           </div>
         </div>
         <button @click="showGuide = false; localStorage.setItem('hasSeenGuide', 'true')" class="btn btn-primary-custom w-100 py-3 mt-3">Mulai!</button>
@@ -595,15 +583,16 @@ onUnmounted(()=> {
 
   <main class="container px-4 mt-4">
     <section class="status-card shadow-sm mb-4" :class="{
-      'status-active': student.status === 'Hadir',
-      'status-pulang': student.status === 'Pulang',
+      'status-active': student.status === 'Hadir' && !isLate,
+      'status-late': student.status === 'Hadir' && isLate,
+      'status-pulang': !isSchoolTime,
       'status-pending': student.status === 'Belum Absen'
     }">
       <div class="card-body p-4 text-white">
         <div class="d-flex justify-content-between opacity-75 small mb-2"><span>STATUS KEHADIRAN</span><i class="bi bi-shield-check"></i></div>
         <h2 class="display-6 fw-bold mb-3">{{ displayStatus }}</h2>
         <div class="d-flex align-items-center">
-          <div class="pulse-dot me-2"></div>
+          <div class="pulse-dot me-2" :class="isLate ? 'pulse-late' : ''"></div>
           <span class="small opacity-90">{{ hariIniText }}, {{ new Date().toLocaleDateString('id-ID') }}</span>
         </div>
       </div>
@@ -611,7 +600,10 @@ onUnmounted(()=> {
 
     <div class="row g-3 mb-3">
       <div class="col-6">
-        <button class="action-card btn w-100 py-4 shadow-sm" @click="startScan" :disabled="!canAbsen" :class="!canAbsen ? 'disabled-card' : 'scan-active'">
+        <button class="action-card btn w-100 py-4 shadow-sm" @click="startScan" :disabled="!canAbsen" :class="{
+          'disabled-card': !canAbsen,
+          'scan-active': canAbsen
+        }">
           <i class="bi bi-qr-code-scan d-block mb-2 fs-2"></i><span class="fw-bold small">ABSENSI</span>
         </button>
       </div>
@@ -623,12 +615,6 @@ onUnmounted(()=> {
     </div>
 
     <div class="row g-3 mb-4">
-      <div class="col-6">
-        <button class="action-card btn btn-white w-100 py-4 shadow-sm" @click="handleLogPulang">
-          <i class="bi bi-house-door d-block mb-2 fs-2 text-warning"></i>
-          <span class="fw-bold small">LOG PULANG</span>
-        </button>
-      </div>
       <div class="col-6">
         <button class="action-card btn btn-white w-100 py-4 shadow-sm border-0 d-flex flex-column align-items-center justify-content-center" @click="handleSendEvidenceDirect">
           <i class="bi bi-whatsapp d-block mb-2 text-success"></i>
@@ -669,7 +655,8 @@ onUnmounted(()=> {
       <h6 class="fw-bold mb-3 text-dark"><i class="bi bi-journal-text me-2 text-primary"></i>Informasi Sekolah</h6>
       <div class="small text-muted">
         <div class="d-flex mb-3"><div class="guide-num me-3">1</div><p class="m-0">Radius sekolah: <strong>{{ schoolConfig.radius }} meter</strong>.</p></div>
-        <div class="d-flex"><div class="guide-num me-3">2</div><p class="m-0">Lokasi: <strong>SMK Negeri 1 Cianjur</strong></p></div>
+        <div class="d-flex mb-3"><div class="guide-num me-3">2</div><p class="m-0">Jam absen: <strong>06:00 - 15:00</strong>.</p></div>
+        <div class="d-flex"><div class="guide-num me-3">3</div><p class="m-0">Lokasi: <strong>SMK Negeri 1 Cianjur</strong></p></div>
       </div>
     </div>
   </main>
@@ -689,21 +676,12 @@ onUnmounted(()=> {
       </div>
       
       <div class="profile-body p-4">
-        <label class="text-muted smaller fw-bold mb-2 d-block">REKAPITULASI & BUKTI</label>
+        <label class="text-muted smaller fw-bold mb-2 d-block">REKAPITULASI</label>
         <div class="row g-2 mb-3">
           <div class="col-3"><div class="stat-card hadir"><span class="stat-val">{{ attendanceStats.hadir }}</span><span class="stat-lbl">Hadir</span></div></div>
           <div class="col-3"><div class="stat-card sakit"><span class="stat-val">{{ attendanceStats.sakit }}</span><span class="stat-lbl">Sakit</span></div></div>
           <div class="col-3"><div class="stat-card izin"><span class="stat-val">{{ attendanceStats.izin }}</span><span class="stat-lbl">Izin</span></div></div>
           <div class="col-3"><div class="stat-card alfa"><span class="stat-val">{{ attendanceStats.alfa }}</span><span class="stat-lbl">Alfa</span></div></div>
-        </div>
-
-        <div class="info-item shadow-sm border mb-4 bg-light">
-          <div class="p-3 d-flex justify-content-between align-items-center">
-            <div><span class="fw-bold d-block small">Jam Pulang Terakhir</span><small class="text-muted smaller">Hari ini</small></div>
-            <span class="badge bg-warning text-dark fw-bold fs-6">
-              {{ student.lastPulang ? new Date(student.lastPulang).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '--:--' }}
-            </span>
-          </div>
         </div>
 
         <label class="text-muted smaller fw-bold mb-2 d-block">PENGATURAN</label>
@@ -763,14 +741,17 @@ onUnmounted(()=> {
               <div class="status-dot-schedule"></div>
             </div>
           </div>
-          <div v-if="jadwalHariIni.length === 0" class="text-center py-5"><i class="bi bi-calendar2-x fs-1 text-light mb-3 d-block"></i><p class="text-muted small">Tidak ada jadwal hari ini.</p></div>
+          <div v-if="jadwalHariIni.length === 0" class="text-center py-5">
+            <i class="bi bi-calendar2-x fs-1 text-light mb-3"></i>
+            <h6 class="text-muted">Tidak ada jadwal hari ini</h6>
+          </div>
         </div>
-        <button @click="scheduleVisible=false" class="btn btn-light w-100 py-3 rounded-pill fw-bold mt-2">Tutup</button>
       </div>
     </div>
   </transition>
 </div>
 </template>
+
 
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
@@ -783,6 +764,7 @@ onUnmounted(()=> {
   transition: all 0.4s ease;
   border: none;
 }
+
 
 .status-active {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%); /* Hijau */
